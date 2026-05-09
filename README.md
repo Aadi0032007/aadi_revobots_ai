@@ -298,7 +298,7 @@ revobots/taskbot_pick_place/
 
 <img width="100%" src="https://capsule-render.vercel.app/api?type=waving&color=0:112244,50:0e3a5c,100:0a0a0f&height=120&section=footer&animation=fadeIn" alt="footer"/>
 
-**© 2025 Revobots · Aditya Raj ([@Aadi0032007](https://github.com/Aadi0032007)) · Built on 🤗 LeRobot**
+**© 2026 Revobots · Aditya Raj ([@Aadi0032007](https://github.com/Aadi0032007)) · Built on 🤗 LeRobot**
 
 *Transforming workforce automation with AI-driven, 3D-printed, task-adaptive robotics.*
 
