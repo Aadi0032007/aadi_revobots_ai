@@ -1,86 +1,288 @@
-# How to contribute to 🤗 LeRobot
+<div align="center">
 
-Everyone is welcome to contribute, and we value everybody's contribution. Code is not the only way to help the community. Answering questions, helping others, reaching out, and improving the documentation are immensely valuable.
+<img width="100%" src="https://capsule-render.vercel.app/api?type=waving&color=0:0a0a0f,40:0d1f3c,80:0e3a5c,100:112244&height=160&section=header&text=Contributing&fontSize=40&fontColor=ffffff&fontAlignY=42&desc=aadi_revobots_ai%20×%20REVOBOTS&descAlignY=62&descSize=16&animation=fadeIn" alt="banner"/>
 
-Whichever way you choose to contribute, please be mindful to respect our [code of conduct](https://github.com/huggingface/lerobot/blob/main/CODE_OF_CONDUCT.md) and our [AI policy](https://github.com/huggingface/lerobot/blob/main/AI_POLICY.md).
+</div>
 
-## Ways to Contribute
+---
 
-You can contribute in many ways:
+Thank you for your interest in contributing to **aadi_revobots_ai**. This project powers the AI stack for [Revobots](https://revobots.ai) robotic systems deployed in real customer environments. Contributions are welcome — and held to a high standard for that reason.
 
-- **Fixing issues:** Resolve bugs or improve existing code.
-- **New features:** Develop new features.
-- **Extend:** Implement new models/policies, robots, or simulation environments and upload datasets to the Hugging Face Hub.
-- **Documentation:** Improve examples, guides, and docstrings.
-- **Feedback:** Submit tickets related to bugs or desired new features.
+Please read this document fully before opening an issue or pull request.
 
-If you are unsure where to start, join our [Discord Channel](https://discord.gg/q8Dzzpym3f).
+> Also read: [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md) · [SECURITY.md](./SECURITY.md)
 
-## Development Setup
+---
 
-To contribute code, you need to set up a development environment.
+## 📋 Table of Contents
 
-### 1. Fork and Clone
+- [Who Can Contribute](#-who-can-contribute)
+- [What You Can Contribute](#-what-you-can-contribute)
+- [Before You Start](#-before-you-start)
+- [Development Setup](#-development-setup)
+- [Branching Strategy](#-branching-strategy)
+- [Making Changes](#-making-changes)
+- [Commit Messages](#-commit-messages)
+- [Pull Request Process](#-pull-request-process)
+- [Code Standards](#-code-standards)
+- [Adding a New Robot](#-adding-a-new-robot)
+- [Dataset Contributions](#-dataset-contributions)
+- [What Not to Contribute](#-what-not-to-contribute)
 
-Fork the repository on GitHub, then clone your fork:
+---
+
+## 👥 Who Can Contribute
+
+This is an open-source project with a business mandate. Contributions are welcome from:
+
+- **Revobots team members** — primary contributors with full write access
+- **Community contributors** — external contributors via fork + pull request
+- **Research partners** — academic or industry collaborators working with Revobots hardware
+
+All contributors must agree to the [Code of Conduct](./CODE_OF_CONDUCT.md) and [License](./LICENSE) terms before contributing.
+
+---
+
+## 🔧 What You Can Contribute
+
+| Type | Examples |
+|---|---|
+| **Bug fixes** | Incorrect joint mappings, broken teleoperation, dataset schema errors |
+| **New robot support** | Implement the `Robot` interface for a new Revobots platform |
+| **Policy improvements** | Tuning, new training configs, evaluation scripts |
+| **Dataset tooling** | Scripts for recording, validating, or converting datasets |
+| **Documentation** | Guides, docstrings, examples, tutorials |
+| **Tests** | Unit tests, integration tests, hardware-in-the-loop test stubs |
+| **Performance** | Inference speed, memory efficiency, data loading improvements |
+
+---
+
+## 🔍 Before You Start
+
+1. **Search existing issues** — check that your bug or feature isn't already tracked
+2. **Open an issue first** for non-trivial changes — get feedback before investing time in a PR
+3. **For breaking changes** — always open an issue and get maintainer sign-off before writing code
+4. **For security issues** — do **not** open a public issue; follow [SECURITY.md](./SECURITY.md) instead
+
+---
+
+## 💻 Development Setup
+
+Follow [INSTALLATION.md](./INSTALLATION.md) to set up your environment, then:
 
 ```bash
-git clone https://github.com/<your-handle>/lerobot.git
-cd lerobot
-git remote add upstream https://github.com/huggingface/lerobot.git
-```
+# Fork the repo on GitHub, then clone your fork
+git clone https://github.com/<your-username>/aadi_revobots_ai.git
+cd aadi_revobots_ai
 
-### 2. Environment Installation
+# Add upstream remote
+git remote add upstream https://github.com/Aadi0032007/aadi_revobots_ai.git
 
-Please follow our [Installation Guide](https://huggingface.co/docs/lerobot/installation) for the environment setup & installation from source.
+# Install in editable mode with dev extras
+pip install -e ".[dev]"
 
-## Running Tests & Quality Checks
-
-### Code Style (Pre-commit)
-
-Install `pre-commit` hooks to run checks automatically before you commit:
-
-```bash
+# Install pre-commit hooks
+pip install pre-commit
 pre-commit install
 ```
 
-To run checks manually on all files:
+---
+
+## 🌿 Branching Strategy
+
+| Branch | Purpose |
+|---|---|
+| `main` | Stable, production-ready code — protected |
+| `dev` | Integration branch for active development |
+| `feature/<name>` | New features or robot integrations |
+| `fix/<name>` | Bug fixes |
+| `docs/<name>` | Documentation-only changes |
+| `release/<version>` | Release preparation |
+
+Always branch off `dev`, not `main`:
+
+```bash
+git checkout dev
+git pull upstream dev
+git checkout -b feature/your-feature-name
+```
+
+---
+
+## ✏️ Making Changes
+
+- Keep changes focused — one feature or fix per PR
+- Write or update tests for any code you change
+- Update relevant documentation and docstrings
+- For robot interface changes, update the corresponding config YAML
+- For breaking changes to dataset schemas or robot APIs, clearly document the migration path in the PR description
+
+---
+
+## 💬 Commit Messages
+
+Follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>(<scope>): <short description>
+
+[optional body]
+
+[optional footer]
+```
+
+**Types:**
+
+| Type | Use for |
+|---|---|
+| `feat` | New feature or robot support |
+| `fix` | Bug fix |
+| `docs` | Documentation only |
+| `refactor` | Code restructure, no behaviour change |
+| `test` | Adding or updating tests |
+| `perf` | Performance improvement |
+| `chore` | Build, config, dependency updates |
+| `ci` | CI/CD pipeline changes |
+
+**Examples:**
+
+```
+feat(robots): add TASKBOT SCOUT Robot class implementation
+fix(nero_arm): correct joint velocity limit in config
+docs(installation): update uv track for ffmpeg system install
+```
+
+---
+
+## 🔁 Pull Request Process
+
+1. **Ensure your branch is up to date** with `dev` before opening a PR
+2. **Fill out the PR template** completely — do not delete sections
+3. **Link the related issue** using `Closes #<issue-number>`
+4. **All checks must pass** — linting, formatting, and tests
+5. **At least one maintainer review** is required before merge
+6. **Breaking changes** require sign-off from [@Aadi0032007](https://github.com/Aadi0032007)
+7. **Do not merge your own PRs** without review — no exceptions for production-affecting code
+
+### PR Title Format
+
+Follow the same Conventional Commits format as commit messages:
+
+```
+feat(robots): add TASKBOT AVA calibration support
+```
+
+---
+
+## 🧹 Code Standards
+
+### Style
+
+- **Python 3.12+**
+- [`ruff`](https://docs.astral.sh/ruff/) for linting and formatting (replaces black + flake8)
+- Type hints on all public functions and class methods
+- Docstrings on all public classes and functions (Google style)
+
+```bash
+ruff check .          # lint
+ruff format .         # format
+```
+
+### Tests
+
+```bash
+pytest tests/         # run all tests
+pytest tests/robots/  # run robot-specific tests
+```
+
+### Pre-commit
+
+All hooks run automatically on `git commit`. To run manually:
 
 ```bash
 pre-commit run --all-files
 ```
 
-### Running Tests
+---
 
-We use `pytest`. First, ensure you have test artifacts by installing **git-lfs**:
+## 🤖 Adding a New Robot
 
-```bash
-git lfs install
-git lfs pull
+To add support for a new Revobots hardware platform, implement the LeRobot `Robot` base interface:
+
+```python
+# src/revobots/robots/my_robot.py
+
+from lerobot.robots import Robot
+from dataclasses import dataclass
+
+@dataclass
+class MyRobotConfig:
+    port: str = "/dev/ttyUSB0"
+    # ... hardware-specific config fields
+
+class MyRobot(Robot):
+    def __init__(self, config: MyRobotConfig):
+        self.config = config
+
+    def connect(self) -> None:
+        """Establish connection to hardware."""
+        ...
+
+    def disconnect(self) -> None:
+        """Safely disconnect from hardware."""
+        ...
+
+    def get_observation(self) -> dict:
+        """Return current sensor observations."""
+        ...
+
+    def send_action(self, action) -> None:
+        """Send joint commands to actuators."""
+        ...
 ```
 
-Run the full suite (this may require extras installed):
+Also provide:
+- A config YAML at `src/revobots/configs/my_robot.yaml`
+- Unit tests at `tests/robots/test_my_robot.py`
+- Documentation in the PR description
 
-```bash
-pytest -sv ./tests
-```
+---
 
-Or run a specific test file during development:
+## 📡 Dataset Contributions
 
-```bash
-pytest -sv tests/test_specific_feature.py
-```
+If contributing demonstration datasets:
 
-## Submitting Issues & Pull Requests
+- Use the **LeRobotDataset v3** format (Parquet + MP4)
+- Host datasets under the `revobots/` namespace on HuggingFace Hub
+- Include a `meta/info.json` with correct fps, shapes, and feature descriptions
+- Do **not** include personally identifiable information or proprietary customer data in any dataset
+- Verify your dataset with `lerobot-visualize-dataset` before submitting
 
-Use the templates for required fields and examples.
+---
 
-- **Issues:** Follow the [ticket template](https://github.com/huggingface/lerobot/blob/main/.github/ISSUE_TEMPLATE/bug-report.yml).
-- **Pull requests:** Rebase on `upstream/main`, use a descriptive branch (don't work on `main`), run `pre-commit` and tests locally, and follow the [PR template](https://github.com/huggingface/lerobot/blob/main/.github/PULL_REQUEST_TEMPLATE.md).
+## 🚫 What Not to Contribute
 
-> [!IMPORTANT]
-> Community Review Policy: To help scale our efforts and foster a collaborative environment, we ask contributors to review at least one other person's open PR before their own receives attention. This shared responsibility multiplies our review capacity and helps everyone's code get merged faster!
+- **Customer-specific code or configs** that contain proprietary information
+- **Hardcoded credentials**, API keys, or access tokens — use environment variables
+- **Untested changes** to safety-critical paths (joint limits, emergency stop, velocity caps)
+- **Large binary files** — use Git LFS or HuggingFace Hub for datasets and model weights
+- **Code with unclear licensing** — all contributions must be compatible with the project license
 
-Once you have submitted your PR and completed a peer review, a member of the LeRobot team will review your contribution.
+---
 
-Thank you for contributing to LeRobot!
+## 📬 Contact
+
+For questions not covered here, reach out to the maintainer:
+
+**Aditya Raj** · [@Aadi0032007](https://github.com/Aadi0032007)  
+📧 [ms.adityaraj@gmail.com](mailto:ms.adityaraj@gmail.com)
+
+---
+
+<div align="center">
+
+<img width="100%" src="https://capsule-render.vercel.app/api?type=waving&color=0:112244,50:0e3a5c,100:0a0a0f&height=100&section=footer&animation=fadeIn" alt="footer"/>
+
+**© 2025 Revobots · [revobots.ai](https://revobots.ai)**
+
+</div>

@@ -1,48 +1,136 @@
-# Security Policy
+<div align="center">
 
-## Project Status & Philosophy
+<img width="100%" src="https://capsule-render.vercel.app/api?type=waving&color=0:0a0a0f,40:1a0a0a,80:3c0d0d,100:5c1010&height=160&section=header&text=Security%20Policy&fontSize=40&fontColor=ffffff&fontAlignY=42&desc=aadi_revobots_ai%20×%20REVOBOTS&descAlignY=62&descSize=16&animation=fadeIn" alt="banner"/>
 
-`lerobot` has so far been primarily a research and prototyping tool, which is why deployment security hasn’t been a strong focus until now. As `lerobot` continues to be adopted and deployed in production, we are paying much closer attention to these kinds of issues.
+</div>
 
-Fortunately, being an open-source project, the community can also help by reporting and fixing vulnerabilities. We appreciate your efforts to responsibly disclose your findings and will make every effort to acknowledge your contributions.
+---
 
-## Reporting a Vulnerability
+## ⚠️ Important Context
 
-To report a security issue, please use the GitHub Security Advisory ["Report a Vulnerability"](https://github.com/huggingface/lerobot/security/advisories/new) tab.
+**aadi_revobots_ai** is the AI control and training stack for [Revobots](https://revobots.ai) robotic systems. Security vulnerabilities in this codebase can have **real-world physical consequences** — including unsafe robot behaviour, unintended actuation, or harm to people and equipment in industrial environments.
 
-The `lerobot` team will send a response indicating the next steps in handling your report. After the initial reply to your report, the security team will keep you informed of the progress towards a fix and full announcement, and may ask for additional information or guidance.
+We take all security reports seriously and ask that you do the same when disclosing them.
 
-#### Hugging Face Security Team
-
-Since this project is part of the Hugging Face ecosystem, feel free to submit vulnerability reports directly to: **[security@huggingface.co](mailto:security@huggingface.co)**. Someone from the HF security team will review the report and recommend next steps.
-
-#### Open Source Disclosures
-
-If reporting a vulnerability specific to the open-source codebase (and not the underlying Hub infrastructure), you may also use [Huntr](https://huntr.com), a vulnerability disclosure program for open source software.
+---
 
 ## Supported Versions
 
-Currently, we treat `lerobot` as a rolling release. We prioritize security updates for the latest available version (`main` branch).
+| Version | Supported |
+|---|---|
+| `main` (latest) | ✅ Actively maintained |
+| Tagged releases | ✅ Critical patches backported where feasible |
+| Older branches | ❌ No active security support |
 
-| Version  | Supported |
-| -------- | --------- |
-| Latest   | ✅        |
-| < Latest | ❌        |
+Always run the latest commit on `main` for the most up-to-date security patches.
 
-## Secure Usage Guidelines
+---
 
-`lerobot` is tightly coupled to the Hugging Face Hub for sharing data and pretrained policies. When downloading artifacts uploaded by others, you expose yourself to risks. Please read below for recommendations to keep your runtime and robot environment safe.
+## Reporting a Vulnerability
 
-### Remote Artefacts (Weights & Policies)
+**Do not open a public GitHub issue for security vulnerabilities.**
 
-Models and policies uploaded to the Hugging Face Hub come in different formats. We heavily recommend uploading and downloading models in the [`safetensors`](https://github.com/huggingface/safetensors) format.
+Report all security concerns privately and directly to the project maintainer:
 
-`safetensors` was developed specifically to prevent arbitrary code execution on your system, which is critical when running software on physical hardware/robots.
+**Aditya Raj** — Project Owner  
+📧 **[ms.adityaraj@gmail.com](mailto:ms.adityaraj@gmail.com)**  
+🌐 **[revobots.ai](https://revobots.ai)**
 
-To avoid loading models from unsafe formats (e.g., `pickle`), you should ensure you are prioritizing `safetensors` files.
+---
 
-### Remote Code
+### What to Include in Your Report
 
-Some models or environments on the Hub may require `trust_remote_code=True` to run custom architecture code.
+Please provide as much of the following as possible:
 
-Please **always** verify the content of the modeling files when using this argument. We recommend setting a specific `revision` (commit hash) when loading remote code to ensure you protect yourself from unverified updates to the repository.
+- **Description** — a clear summary of the vulnerability
+- **Affected component** — which robot, policy, dataset pipeline, or API is affected
+- **Reproduction steps** — minimal steps to trigger the issue
+- **Impact assessment** — what an attacker or faulty state could cause (e.g. uncontrolled motor actuation, data exfiltration, policy poisoning)
+- **Suggested fix** — if you have one
+- **Your contact details** — so we can follow up
+
+---
+
+## Our Response Commitment
+
+| Milestone | Target Timeframe |
+|---|---|
+| Acknowledgement of your report | Within **48 hours** |
+| Initial severity assessment | Within **5 business days** |
+| Fix or mitigation for critical issues | Within **14 days** |
+| Public disclosure (coordinated) | After fix is deployed |
+
+We will keep you informed at each stage and coordinate the disclosure timeline with you.
+
+---
+
+## Severity Classification
+
+We assess vulnerabilities using the following categories:
+
+| Severity | Description | Examples |
+|---|---|---|
+| 🔴 **Critical** | Can cause physical harm or unsafe robot behaviour | Bypassing joint limits, disabling emergency stop, arbitrary motor commands |
+| 🟠 **High** | Significant system compromise or data breach | Remote code execution, credential theft, policy model poisoning |
+| 🟡 **Medium** | Partial impact with limited scope | Denial of service, incorrect sensor data, dataset tampering |
+| 🟢 **Low** | Minimal real-world impact | Minor info disclosure, non-exploitable edge cases |
+
+---
+
+## Safety-Critical Code Paths
+
+The following areas are treated with the highest priority due to their potential for physical harm:
+
+- **Joint velocity and position limits** — `src/revobots/robots/*/`
+- **Emergency stop and fault handling** — any `stop()`, `disconnect()`, or safety interlock logic
+- **Teleoperation input validation** — `src/revobots/teleop/`
+- **Policy inference pipeline** — unchecked model outputs sent directly to actuators
+- **Dataset integrity** — poisoned training data leading to unsafe learned behaviour
+
+Any report touching these areas is automatically escalated to **Critical** pending investigation.
+
+---
+
+## Responsible Disclosure Policy
+
+We follow coordinated disclosure:
+
+1. You report the vulnerability privately to us
+2. We investigate, develop a fix, and test it
+3. We release the fix and notify affected users
+4. We publicly acknowledge your contribution (with your permission)
+
+We ask that you:
+
+- Give us a reasonable time to respond before any public disclosure
+- Do not exploit the vulnerability beyond what is necessary to demonstrate it
+- Do not access, modify, or exfiltrate data belonging to Revobots customers
+- Do not disrupt production robotic systems or customer deployments
+
+---
+
+## Acknowledgements
+
+We gratefully acknowledge responsible security researchers who help keep this project and its users safe. With your permission, your name will be listed here following coordinated disclosure.
+
+---
+
+## Out of Scope
+
+The following are generally **not** considered security vulnerabilities for this project:
+
+- Bugs that require physical access to the robot hardware to exploit
+- Issues in third-party dependencies (report those upstream — e.g. to LeRobot or HuggingFace)
+- Performance degradation without a security impact
+- Theoretical issues with no practical exploit path
+
+---
+
+<div align="center">
+
+<img width="100%" src="https://capsule-render.vercel.app/api?type=waving&color=0:5c1010,50:3c0d0d,100:0a0a0f&height=100&section=footer&animation=fadeIn" alt="footer"/>
+
+**© 2025 Revobots · [revobots.ai](https://revobots.ai)**  
+*Physical AI demands physical responsibility.*
+
+</div>
