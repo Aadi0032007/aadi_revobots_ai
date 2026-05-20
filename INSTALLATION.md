@@ -89,26 +89,7 @@ ffmpeg -encoders | grep svt    # libsvtav1 must appear
 
 ---
 
-### Step 3 — Install LeRobot 🤗
-
-**From source** *(recommended — allows editable development)*:
-
-```bash
-git clone https://github.com/huggingface/lerobot.git
-cd lerobot
-pip install -e .
-cd ..
-```
-
-**From PyPI** *(stable release)*:
-
-```bash
-pip install lerobot
-```
-
----
-
-### Step 4 — Clone & Install `aadi_revobots_ai`
+### Step 3 — Clone & Install `aadi_revobots_ai`
 
 ```bash
 git clone https://github.com/Aadi0032007/aadi_revobots_ai.git
@@ -119,7 +100,7 @@ cd ..
 
 ---
 
-### Step 5 — Optional Extras
+### Step 4 — Optional Extras
 
 Multiple extras can be combined (e.g. `.[feetech,aloha]`). Run from inside the `lerobot/` directory, or use `pip install 'lerobot[...]'` if you installed from PyPI.
 
@@ -135,7 +116,7 @@ For a full list of available tags see: [pypi.org/project/lerobot](https://pypi.o
 
 ---
 
-### Step 6 — Experiment Tracking *(optional)*
+### Step 5 — Experiment Tracking *(optional)*
 
 ```bash
 wandb login
@@ -143,7 +124,7 @@ wandb login
 
 ---
 
-### Step 7 — Verify
+### Step 6 — Verify
 
 ```bash
 python -c "import lerobot; print('✅ LeRobot:', lerobot.__version__)"
