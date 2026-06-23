@@ -29,10 +29,10 @@ class AgxNeroFollower(Robot):
     FOLLOWER_JOINTS = (
         "shoulder_pan",
         "shoulder_lift",
-        "elbow_flex",
         "forearm_roll",
-        "wrist_pitch",
+        "elbow_flex",
         "wrist_roll",
+        "wrist_pitch",
         "wrist_flex",
         "gripper"
     )
@@ -170,10 +170,10 @@ class AgxNeroFollower(Robot):
         if len(joint_angles_rad) >= 7:
             obs["shoulder_pan.pos"] = math.degrees(joint_angles_rad[0])
             obs["shoulder_lift.pos"] = math.degrees(joint_angles_rad[1])
-            obs["elbow_flex.pos"] = math.degrees(joint_angles_rad[2])
-            obs["forearm_roll.pos"] = math.degrees(joint_angles_rad[3])
-            obs["wrist_pitch.pos"] = math.degrees(joint_angles_rad[4])
-            obs["wrist_roll.pos"] = math.degrees(joint_angles_rad[5])
+            obs["forearm_roll.pos"] = math.degrees(joint_angles_rad[2])
+            obs["elbow_flex.pos"] = math.degrees(joint_angles_rad[3])
+            obs["wrist_roll.pos"] = math.degrees(joint_angles_rad[4])
+            obs["wrist_pitch.pos"] = math.degrees(joint_angles_rad[5])
             obs["wrist_flex.pos"] = math.degrees(joint_angles_rad[6])
         else:
             # Fallback in case of hardware read failure
@@ -220,10 +220,10 @@ class AgxNeroFollower(Robot):
                 present_deg = {
                     "shoulder_pan": math.degrees(present_rads[0]),
                     "shoulder_lift": math.degrees(present_rads[1]),
-                    "elbow_flex": math.degrees(present_rads[2]),
-                    "forearm_roll": math.degrees(present_rads[3]),
-                    "wrist_pitch": math.degrees(present_rads[4]),
-                    "wrist_roll": math.degrees(present_rads[5]),
+                    "forearm_roll": math.degrees(present_rads[2]),
+                    "elbow_flex": math.degrees(present_rads[3]),
+                    "wrist_roll": math.degrees(present_rads[4]),
+                    "wrist_pitch": math.degrees(present_rads[5]),
                     "wrist_flex": math.degrees(present_rads[6]),
                     "gripper": float(self.gripper.get_gripper_status().msg.value) if self.gripper.get_gripper_status() else 0.0
                 }
@@ -238,17 +238,17 @@ class AgxNeroFollower(Robot):
         # NOTE: Apply your hardware-specific math/inversions here 
         # (e.g., pan = raw_goals["shoulder_pan"] - 5.0)
         goal_deg_hardware = [
-            raw_goals["shoulder_pan"],   # Index 0
-            raw_goals["shoulder_lift"],  # Index 1
-            raw_goals["elbow_flex"],     # Index 2
-            raw_goals["forearm_roll"],   # Index 3
-            raw_goals["wrist_pitch"],    # Index 4
-            raw_goals["wrist_roll"],     # Index 5
+            raw_goals["shoulder_pan"] - 5.0,   # Index 0
+            raw_goals["shoulder_lift"] + 43.7466,  # Index 1
+            raw_goals["forearm_roll"],     # Index 2
+            raw_goals["elbow_flex"] + 90.0,   # Index 3
+            raw_goals["wrist_roll"],    # Index 4
+            raw_goals["wrist_pitch"],     # Index 5
             raw_goals["wrist_flex"]      # Index 6
         ]
         
         # Calculate gripper (apply scaling or caps here if needed)
-        gripper_cmd = raw_goals["gripper"]
+        gripper_cmd = min(raw_goals["gripper"] * 2, 95)
 
         # 4. Convert to radians and send to arm
         self.gripper.move_gripper_deg(value=gripper_cmd, force=0.5)
