@@ -241,7 +241,7 @@ class AgxNeroFollower(Robot):
             raw_goals["shoulder_pan"] - 5.0,   # Index 0
             raw_goals["shoulder_lift"] + 43.7466,  # Index 1
             raw_goals["forearm_roll"],     # Index 2
-            raw_goals["elbow_flex"] + 90.0,   # Index 3
+            -raw_goals["elbow_flex"] + 90.0,   # Index 3
             raw_goals["wrist_roll"],    # Index 4
             raw_goals["wrist_pitch"],     # Index 5
             raw_goals["wrist_flex"]      # Index 6
