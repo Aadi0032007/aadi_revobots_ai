@@ -63,7 +63,8 @@ class AgxNeroFollower(Robot):
 
     @property
     def action_features(self) -> dict[str, type]:
-        return self._motors_ft
+        joints = self.config.teleop_action_joints or self.FOLLOWER_JOINTS
+        return {f"{name}.pos": float for name in joints}
 
     # ------------------------------------------------------------------
     # Connection state

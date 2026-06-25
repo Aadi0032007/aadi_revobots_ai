@@ -43,6 +43,20 @@ class AgxNeroFollowerConfig(RobotConfig):
     max_relative_target: float | dict[str, float] | None = None
     disable_on_disconnect: bool = True
     cameras: dict[str, CameraConfig] = field(default_factory=dict)
+    # Restrict the recorded/teleoperated action schema to this subset of
+    # AgxNeroFollower.FOLLOWER_JOINTS. None = use every joint.
+    # Defaults to koch_leader's 6 motors, since it has no forearm_roll or
+    # wrist_pitch motor; override via --robot.teleop_action_joints for other leaders.
+    teleop_action_joints: list[str] | None = field(
+        default_factory=lambda: [
+            "shoulder_pan",
+            "shoulder_lift",
+            "elbow_flex",
+            "wrist_roll",
+            "wrist_flex",
+            "gripper",
+        ]
+    )
 
     def __post_init__(self):
         super().__post_init__()
