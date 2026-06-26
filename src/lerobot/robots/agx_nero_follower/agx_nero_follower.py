@@ -6,6 +6,7 @@ Created on Wed May  6 14:57:52 2026
 """
 
 # -*- coding: utf-8 -*-
+from lerobot.utils.decorators import check_if_not_connected
 import logging
 import math
 import time
@@ -155,11 +156,9 @@ class AgxNeroFollower(Robot):
     # ------------------------------------------------------------------
     # Observation
     # ------------------------------------------------------------------
-
+    @check_if_not_connected
     def get_observation(self) -> dict[str, Any]:
-        if not self.is_connected:
-            raise DeviceNotConnectedError(f"{self.name} is not connected.")
-    
+        # Read arm position
         obs: dict[str, Any] = {}
         t0 = time.perf_counter()
         
@@ -191,7 +190,10 @@ class AgxNeroFollower(Robot):
         self.logs["read_pos_dt_s"] = time.perf_counter() - t0
     
         for cam_key, cam in self.cameras.items():
-            obs[cam_key] = cam.async_read()
+            start = time.perf_counter()
+            obs[cam_key] = cam.read_latest()
+            dt_ms = (time.perf_counter() - start) * 1e3
+            logger.debug(f"{self} read {cam_key}: {dt_ms:.1f}ms")
           
         return obs
 
