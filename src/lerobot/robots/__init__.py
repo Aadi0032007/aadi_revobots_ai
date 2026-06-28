@@ -20,5 +20,6 @@ from .utils import make_robot_from_config
 
 # added by Aadi
 from . import agx_nero_follower
+from . import revobots_agv_follower
 
-__all__ = ["Robot", "RobotConfig", "make_robot_from_config", "agx_nero_follower"]
+__all__ = ["Robot", "RobotConfig", "make_robot_from_config", "agx_nero_follower", "revobots_agv_follower"]
