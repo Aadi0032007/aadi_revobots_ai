@@ -81,6 +81,10 @@ def make_robot_from_config(config: RobotConfig) -> Robot:
         from .agx_nero_follower.agx_nero_follower import AgxNeroFollower
 
         return AgxNeroFollower(config)
+    elif config.type == "revobots_agv_follower":
+        from .revobots_agv_follower.revobots_agv_follower import RevobotsAGVFollower
+
+        return RevobotsAGVFollower(config)
     elif config.type == "mock_robot":
         from tests.mocks.mock_robot import MockRobot
 
