@@ -120,23 +120,32 @@ def split_one_session(session_name, session_path, output_root, start_session_idx
     return session_idx
 
 
-def main():
-    args = get_args()
-    input_path = os.path.expanduser(args.input_path)
+def run_split(input_path, output_root=None, fps=15, segment_minutes=2):
+    """Split all sessions under `input_path` into fixed-length chunks.
+
+    Returns the output_root path containing session_0/, session_1/, ...
+    (the exact layout data_convert_agv expects), or None if nothing was
+    written. If `output_root` is not given, a timestamped folder under
+    ~/.cache/scout/lab/split_session/ is created.
+    """
+    input_path = os.path.expanduser(input_path)
 
     if not os.path.isdir(input_path):
         print(f"[!] Not a directory: {input_path}")
-        return
+        return None
 
     sessions = find_sessions(input_path)
     if not sessions:
         print(f"[!] No valid sessions (with video.mp4 + data.jsonl) found in {input_path}")
-        return
+        return None
 
-    timestamp = datetime.now().strftime("%d%m%Y%H%M")
-    output_root = os.path.expanduser(
-        f"~/.cache/scout/lab/split_session/split_session_{timestamp}"
-    )
+    if output_root is None:
+        timestamp = datetime.now().strftime("%d%m%Y%H%M")
+        output_root = os.path.expanduser(
+            f"~/.cache/scout/lab/split_session/split_session_{timestamp}"
+        )
+    else:
+        output_root = os.path.expanduser(output_root)
     os.makedirs(output_root, exist_ok=True)
 
     print(f"[*] Input:        {input_path}")
@@ -145,10 +154,19 @@ def main():
 
     next_idx = 0
     for session_name, session_path in sessions:
-        next_idx = split_one_session(session_name, session_path, output_root, next_idx)
+        next_idx = split_one_session(
+            session_name, session_path, output_root, next_idx,
+            fps=fps, segment_minutes=segment_minutes,
+        )
 
     print(f"\n[+] All done. {next_idx} total segments written.")
     print(f"[+] Output: {output_root}")
+    return output_root
+
+
+def main():
+    args = get_args()
+    run_split(args.input_path)
 
 
 if __name__ == "__main__":
