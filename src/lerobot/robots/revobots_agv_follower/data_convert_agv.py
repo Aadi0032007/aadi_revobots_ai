@@ -1,5 +1,11 @@
 # -*- coding: utf-8 -*-
 """
+Created on Mon Jul 13 22:10:49 2026
+
+@author: Aadi
+"""
+
+"""
 Build a LeRobot HuggingFace dataset for `revobots_agv_follower` from pre-recorded
 split sessions (output of split_session_agv.py) — WITHOUT using the physical robot.
 
@@ -321,9 +327,25 @@ def parse_args():
     return p.parse_args()
 
 
-def main():
-    args = parse_args()
-    input_root = Path(os.path.expanduser(args.parent_dir)).resolve()
+def run_convert(
+    parent_dir,
+    repo_id,
+    task="Drive the AGV.",
+    fps=15,
+    robot_type="revobots_agv_follower",
+    image_writer_threads=4,
+    video_encoding_batch_size=1,
+    resume=False,
+    push_to_hub=False,
+    no_videos=False,
+    no_obs_processor=False,
+):
+    """Build a LeRobot dataset from split sessions under `parent_dir`.
+
+    Mirrors main() but takes plain kwargs so it can be called from a pipeline.
+    Returns the dataset root path.
+    """
+    input_root = Path(os.path.expanduser(parent_dir)).resolve()
     if not input_root.is_dir():
         raise SystemExit(f"[!] Not a directory: {input_root}")
 
@@ -333,10 +355,10 @@ def main():
 
     print(f"[*] Input root:    {input_root}")
     print(f"[*] Sessions:      {len(sessions)}")
-    print(f"[*] Repo id:       {args.repo_id}")
-    print(f"[*] FPS:           {args.fps}")
-    print(f"[*] Resume:        {args.resume}")
-    print(f"[*] Obs processor: {'DISABLED' if args.no_obs_processor else 'ENABLED (symmetric with inference)'}")
+    print(f"[*] Repo id:       {repo_id}")
+    print(f"[*] FPS:           {fps}")
+    print(f"[*] Resume:        {resume}")
+    print(f"[*] Obs processor: {'DISABLED' if no_obs_processor else 'ENABLED (symmetric with inference)'}")
 
     features = build_dataset_features()
 
@@ -346,7 +368,7 @@ def main():
     # observation processor is, because that's what mutates obs *before*
     # build_dataset_frame on the inference side.
     _, _, robot_observation_processor = make_default_processors()
-    if args.no_obs_processor:
+    if no_obs_processor:
         # Identity stand-in so the rest of the loop doesn't branch.
         robot_observation_processor = lambda obs: obs   # noqa: E731
 
@@ -360,11 +382,11 @@ def main():
     print()
 
     # --- Open or create the dataset (same calls as lerobot_record.record) --
-    if args.resume:
+    if resume:
         try:
             dataset = LeRobotDataset(
-                repo_id=args.repo_id,
-                batch_encoding_size=args.video_encoding_batch_size,
+                repo_id=repo_id,
+                batch_encoding_size=video_encoding_batch_size,
             )
             start_idx = dataset.num_episodes
             print(f"[*] Resuming dataset at episode index {start_idx}")
@@ -372,24 +394,24 @@ def main():
             print(f"[!] --resume failed to load existing dataset ({e}); "
                   f"creating new one.")
             dataset = LeRobotDataset.create(
-                repo_id=args.repo_id,
-                fps=args.fps,
+                repo_id=repo_id,
+                fps=fps,
                 features=features,
-                robot_type=args.robot_type,
-                use_videos=not args.no_videos,
-                image_writer_threads=args.image_writer_threads,
-                batch_encoding_size=args.video_encoding_batch_size,
+                robot_type=robot_type,
+                use_videos=not no_videos,
+                image_writer_threads=image_writer_threads,
+                batch_encoding_size=video_encoding_batch_size,
             )
             start_idx = 0
     else:
         dataset = LeRobotDataset.create(
-            repo_id=args.repo_id,
-            fps=args.fps,
+            repo_id=repo_id,
+            fps=fps,
             features=features,
-            robot_type=args.robot_type,
-            use_videos=not args.no_videos,
-            image_writer_threads=args.image_writer_threads,
-            batch_encoding_size=args.video_encoding_batch_size,
+            robot_type=robot_type,
+            use_videos=not no_videos,
+            image_writer_threads=image_writer_threads,
+            batch_encoding_size=video_encoding_batch_size,
         )
         start_idx = 0
 
@@ -415,7 +437,7 @@ def main():
                     n = add_session_as_episode(
                         session_dir,
                         dataset,
-                        args.task,
+                        task,
                         robot_observation_processor,           # [SYMMETRY] pass it down
                     )
                     total_frames += n
@@ -460,10 +482,29 @@ def main():
           f"{len(todo)} new episode(s).")
     print(f"[✓] Dataset lives at: {dataset.root}")
 
-    if args.push_to_hub:
+    if push_to_hub:
         print("[*] Pushing to HuggingFace Hub...")
         dataset.push_to_hub()
         print("[✓] Pushed.")
+
+    return dataset.root
+
+
+def main():
+    args = parse_args()
+    run_convert(
+        parent_dir=args.parent_dir,
+        repo_id=args.repo_id,
+        task=args.task,
+        fps=args.fps,
+        robot_type=args.robot_type,
+        image_writer_threads=args.image_writer_threads,
+        video_encoding_batch_size=args.video_encoding_batch_size,
+        resume=args.resume,
+        push_to_hub=args.push_to_hub,
+        no_videos=args.no_videos,
+        no_obs_processor=args.no_obs_processor,
+    )
 
 
 if __name__ == "__main__":
