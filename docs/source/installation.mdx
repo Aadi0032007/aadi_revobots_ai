@@ -1,5 +1,10 @@
 # Installation
 
+This guide installs **`aadi_revobots_ai`**, the Revobots fork of LeRobot. The Python package it provides is still importable as `lerobot`, so every command below that mentions the `lerobot` package name is intentional — only the repository name and the environment name are Revobots-specific.
+
+> [!IMPORTANT]
+> The Revobots additions (e.g. the `cortex_agv` policy and the `revobots_agv_follower` robot) only exist in this fork. Install **from source** to get them — the `lerobot` package on PyPI is upstream Hugging Face LeRobot and does **not** contain them.
+
 This guide uses `conda` (via miniforge) to manage environments (recommended). If you prefer another environment manager (e.g. `uv`, `venv`), ensure you have Python >=3.12 and support PyTorch >= 2.10, then skip ahead to [Environment Setup](#step-2-environment-setup).
 
 ## Step 1 (`conda` only): Install [`miniforge`](https://conda-forge.org/download/)
@@ -17,7 +22,7 @@ Create a virtual environment with Python 3.12:
 <hfoptions id="create_venv">
 <hfoption id="conda">
 ```bash
-conda create -y -n lerobot python=3.12
+conda create -y -n aditya python=3.12
 ```
 </hfoption>
 <hfoption id="uv (PyTorch >= 2.10 only)">
@@ -29,18 +34,18 @@ uv venv --python 3.12
 </hfoptions>
 <!-- prettier-ignore-end -->
 
-Then activate your virtual environment, you have to do this each time you open a shell to use lerobot:
+Then activate your virtual environment, you have to do this each time you open a shell to use `aadi_revobots_ai`:
 
 <!-- prettier-ignore-start -->
 
 <hfoptions id="activate_venv">
 <hfoption id="conda">
 ```bash
-conda activate lerobot
+conda activate aditya
 ```
 
 > [!NOTE]
-> When installing LeRobot inside WSL (Windows Subsystem for Linux), make sure to also install `evdev`:
+> When installing `aadi_revobots_ai` inside WSL (Windows Subsystem for Linux), make sure to also install `evdev`:
 >
 > ```bash
 > conda install evdev -c conda-forge
@@ -56,7 +61,7 @@ source .venv/bin/activate
 ```
 
 > [!NOTE]
-> When installing LeRobot inside WSL (Windows Subsystem for Linux), make sure to also install `evdev`:
+> When installing `aadi_revobots_ai` inside WSL (Windows Subsystem for Linux), make sure to also install `evdev`:
 >
 > ```bash
 > sudo apt install libevdev-dev
@@ -69,10 +74,10 @@ source .venv/bin/activate
 
 ### Install `ffmpeg` (for video decoding)
 
-LeRobot uses [TorchCodec](https://github.com/meta-pytorch/torchcodec) for video decoding by default, which requires `ffmpeg`.
+`aadi_revobots_ai` uses [TorchCodec](https://github.com/meta-pytorch/torchcodec) for video decoding by default, which requires `ffmpeg`.
 
 > [!NOTE]
-> **Platform support:** TorchCodec is **not available** on macOS Intel (x86_64), Linux ARM (aarch64, arm64, armv7l), or Windows with PyTorch < 2.8. On these platforms, LeRobot automatically falls back to `pyav` — so you do not need to install `ffmpeg` and can skip to Step 3.
+> **Platform support:** TorchCodec is **not available** on macOS Intel (x86_64), Linux ARM (aarch64, arm64, armv7l), or Windows with PyTorch < 2.8. On these platforms, `aadi_revobots_ai` automatically falls back to `pyav` — so you do not need to install `ffmpeg` and can skip to Step 3.
 
 If your platform supports TorchCodec, install `ffmpeg` using one of the methods below:
 
@@ -114,17 +119,17 @@ brew install ffmpeg
 </hfoptions>
 <!-- prettier-ignore-end -->
 
-## Step 3: Install LeRobot 🤗
+## Step 3: Install `aadi_revobots_ai` 🤖
 
-The base `lerobot` install is intentionally **lightweight** — it includes only core ML dependencies (PyTorch, torchvision, numpy, opencv, einops, draccus, huggingface-hub, gymnasium, safetensors). Heavier dependencies are gated behind optional extras so you only install what you need.
+The base install is intentionally **lightweight** — it includes only core ML dependencies (PyTorch, torchvision, numpy, opencv, einops, draccus, huggingface-hub, gymnasium, safetensors). Heavier dependencies are gated behind optional extras so you only install what you need.
 
-### From Source
+### From Source (recommended)
 
 First, clone the repository and navigate into the directory:
 
 ```bash
-git clone https://github.com/huggingface/lerobot.git
-cd lerobot
+git clone https://github.com/Aadi0032007/aadi_revobots_ai.git
+cd aadi_revobots_ai
 ```
 
 Then, install the library in editable mode. This is useful if you plan to contribute to the code.
@@ -144,11 +149,32 @@ uv pip install -e ".[core_scripts]"  # For robot workflows (recording, replaying
 uv pip install -e ".[training]"      # For training policies
 uv pip install -e ".[all]"           # Everything (all policies, envs, hardware, dev tools)
 ```
+
+> [!TIP]
+> To install the exact dependency set pinned in `uv.lock` (what CI uses), prefer `uv sync` over `uv pip install`:
+>
+> ```bash
+> uv sync --locked                            # Base dependencies
+> uv sync --locked --extra test --extra dev   # Test + dev tools
+> uv sync --locked --extra all                # Everything
+> ```
+>
+> Then run project commands through `uv run` (e.g. `uv run lerobot-train ...`) instead of a raw `python`/`pip`.
+
 </hfoption>
 </hfoptions>
 <!-- prettier-ignore-end -->
 
+If you plan to run the test suite, also pull the LFS-tracked test artifacts:
+
+```bash
+git lfs install && git lfs pull
+```
+
 ### Installation from PyPI
+
+> [!WARNING]
+> There is no `aadi_revobots_ai` package on PyPI. The commands below install **upstream** `lerobot`, which is useful only if you want the stock library without the Revobots policies and robots. For this fork, use the [source install](#from-source-recommended) above.
 
 **Core Library:**
 Install the base package with:
@@ -171,7 +197,7 @@ uv pip install lerobot
 _This installs only the core ML dependencies. You will need to add extras for most workflows._
 
 **Feature Extras:**
-LeRobot provides **feature-scoped extras** that map to common workflows. If you are using `uv`, replace `pip install` with `uv pip install` in the commands below.
+The project provides **feature-scoped extras** that map to common workflows. These are the same extras used by the source install — just swap `lerobot[...]` for `-e ".[...]"`. If you are using `uv`, replace `pip install` with `uv pip install` in the commands below.
 
 | Extra      | What it adds                                | Typical use case                    |
 | ---------- | ------------------------------------------- | ----------------------------------- |
@@ -236,13 +262,13 @@ PyPI default torch wheel is currently a cu130-bundled Linux wheel, driver floor 
 
 To pick a specific CUDA variant:
 
-**Using `pip` or `conda`** — install torch first with an explicit index, then lerobot:
+**Using `pip` or `conda`** — install torch first with an explicit index, then the project:
 
 ```bash
 pip install --index-url https://download.pytorch.org/whl/cu128 torch torchvision
-pip install -e ".[all]"          # source
+pip install -e ".[all]"          # source (aadi_revobots_ai)
 # — or —
-pip install lerobot              # from PyPI
+pip install lerobot              # upstream, from PyPI
 ```
 
 **Using `uv` to install from PyPI** — one-liner via `--torch-backend` (uv ≥ 0.6):
@@ -270,7 +296,7 @@ For other systems, see: [Compiling PyAV](https://pyav.org/docs/develop/overview/
 
 ## Optional dependencies
 
-LeRobot provides optional extras for specific functionalities. Multiple extras can be combined (e.g., `.[aloha,feetech]`). For all available extras, refer to `pyproject.toml`. If you are using `uv`, replace `pip install` with `uv pip install` in the commands below.
+`aadi_revobots_ai` provides optional extras for specific functionalities. Multiple extras can be combined (e.g., `.[aloha,feetech]`). For all available extras, refer to `pyproject.toml`. If you are using `uv`, replace `pip install` with `uv pip install` in the commands below.
 
 ### Simulations
 
@@ -297,4 +323,4 @@ Weights and Biases is included in the `training` extra. To use [Weights and Bias
 wandb login
 ```
 
-You can now assemble your robot if it's not ready yet, look for your robot type on the left. Then follow the link below to use Lerobot with your robot.
+You can now assemble your robot if it's not ready yet, look for your robot type on the left. Then follow the link below to use `aadi_revobots_ai` with your robot.
