@@ -43,6 +43,10 @@ def make_teleoperator_from_config(config: TeleoperatorConfig) -> "Teleoperator":
         from .koch_leader import KochLeader
 
         return KochLeader(config)
+    elif config.type == "koch_leader_remote":
+        from .koch_leader_remote import KochLeaderRemote
+
+        return KochLeaderRemote(config)
     elif config.type == "omx_leader":
         from .omx_leader import OmxLeader
 

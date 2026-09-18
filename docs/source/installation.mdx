@@ -294,6 +294,67 @@ sudo apt-get install cmake build-essential python3-dev pkg-config libavformat-de
 
 For other systems, see: [Compiling PyAV](https://pyav.org/docs/develop/overview/installation.html#bring-your-own-ffmpeg)
 
+## Step 4: Verify your installation
+
+`lerobot-info` prints what is *installed*:
+
+<!-- prettier-ignore-start -->
+<hfoptions id="verify_install">
+<hfoption id="conda">
+```bash
+lerobot-info
+```
+</hfoption>
+<hfoption id="uv">
+```bash
+uv run lerobot-info
+```
+</hfoption>
+</hfoptions>
+<!-- prettier-ignore-end -->
+
+To verify that CUDA and the training stack actually *work*, run the environment smoke test. It executes a real GPU matmul (verified against the CPU), a conv/backward pass, AMP autocast, and a full policy train step, then exits non-zero if any required check fails:
+
+<!-- prettier-ignore-start -->
+<hfoptions id="verify_env">
+<hfoption id="conda">
+```bash
+python -m lerobot.scripts.lerobot_test_env --device cuda --require-cuda
+```
+</hfoption>
+<hfoption id="uv">
+```bash
+uv run python -m lerobot.scripts.lerobot_test_env --device cuda --require-cuda
+```
+</hfoption>
+</hfoptions>
+<!-- prettier-ignore-end -->
+
+Without `--device`, the test auto-detects the best available backend (CUDA → MPS → XPU → CPU) and only *warns* when no GPU is found. Passing `--device cuda` or `--require-cuda` turns a missing or broken CUDA setup into a hard failure — use it on machines that are meant to train.
+
+Useful flags:
+
+| Flag | Effect |
+| ---- | ------ |
+| `--device cuda:1` | Pin a specific GPU |
+| `--policy cortex_agv` | Smoke-test a different policy (`act`, `cortex_agv`) |
+| `--skip-policy` | Imports and accelerator checks only (a couple of seconds) |
+| `--dataset <repo_id>` | Additionally load that dataset and decode frame 0 (requires network) |
+| `--verbose` | Print tracebacks for failed checks |
+
+> [!NOTE]
+> The policy check builds a small policy from synthetic features with the pretrained backbone disabled, so it requires no dataset, no Hub download and well under a GiB of VRAM.
+
+A typical CUDA run ends with:
+
+```
+== Summary ==
+12 passed, 0 failed, 0 warnings, 2 skipped
+Environment looks good on 'cuda'.
+```
+
+If `cuda available` fails with *"torch is a CPU-only build"*, reinstall PyTorch from a CUDA index — see [PyTorch CUDA variant](#pytorch-cuda-variant-linux-only) above.
+
 ## Optional dependencies
 
 `aadi_revobots_ai` provides optional extras for specific functionalities. Multiple extras can be combined (e.g., `.[aloha,feetech]`). For all available extras, refer to `pyproject.toml`. If you are using `uv`, replace `pip install` with `uv pip install` in the commands below.

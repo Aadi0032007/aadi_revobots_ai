@@ -132,6 +132,14 @@ python -c "from revobots.robots.taskbot import TASKBOT; print('✅ Revobots SDK:
 lerobot-info
 ```
 
+`lerobot-info` only **prints** versions. To check that CUDA and the training stack actually **run**, use the environment smoke test:
+
+```bash
+python -m lerobot.scripts.lerobot_test_env --device cuda --require-cuda
+```
+
+It exits `0` only if every required check passes — see [Environment Smoke Test](#-environment-smoke-test) for what it covers and the available flags.
+
 ---
 
 ## 🅱 uv Track
@@ -240,6 +248,14 @@ python -c "from revobots.robots.taskbot import TASKBOT; print('✅ Revobots SDK:
 lerobot-info
 ```
 
+`lerobot-info` only **prints** versions. To check that CUDA and the training stack actually **run**, use the environment smoke test:
+
+```bash
+uv run python -m lerobot.scripts.lerobot_test_env --device cuda --require-cuda
+```
+
+It exits `0` only if every required check passes — see [Environment Smoke Test](#-environment-smoke-test) for what it covers and the available flags.
+
 ---
 
 ## 🗂 Final Workspace Layout
@@ -262,6 +278,75 @@ aditya/
     │   └── teleop/                   ← Teleoperation scripts
     └── pyproject.toml
 ```
+
+---
+
+## 🧪 Environment Smoke Test
+
+`lerobot-info` reports what is *installed*. `lerobot_test_env` checks what actually *works* — it runs a real GPU matmul, a backward pass and a full policy train step, and exits non-zero if anything fails. Run it after install, after a driver or PyTorch upgrade, and on every new machine.
+
+```bash
+# conda
+conda activate aditya
+python -m lerobot.scripts.lerobot_test_env --device cuda --require-cuda
+
+# uv
+uv run python -m lerobot.scripts.lerobot_test_env --device cuda --require-cuda
+```
+
+Expected output on a healthy CUDA box:
+
+```
+== Environment ==
+[ OK ] python version: 3.12.4 on Windows-11-10.0.26200-SP0
+[ OK ] import torch: 2.8.0+cu128
+[ OK ] lerobot import: 0.5.0 from .../src/lerobot/__init__.py
+[ OK ] torch build: torch 2.8.0+cu128, built for CUDA 12.8, cuDNN 91002
+
+== Accelerator ==
+[ OK ] cuda available: 1 device(s) visible
+[ OK ] cuda devices: cuda:0 NVIDIA GeForce RTX 4090 | sm_89 | 23.1/24.0 GiB free
+-> testing on device: cuda
+[ OK ] device compute: 2048x2048 matmul matches CPU, ~48.3 TFLOP/s fp32
+[ OK ] conv + autograd: conv+batchnorm forward/backward ok (loss 0.3312)
+[ OK ] mixed precision: autocast ok for bfloat16, float16; GradScaler backward ok
+
+== LeRobot stack ==
+[ OK ] video backend: decode backend 'torchcodec', ffmpeg at /usr/bin/ffmpeg
+[ OK ] policy train step: act: 8.4M params, train step ok (loss 1.9342; l1_loss=0.8121), select_action -> (2, 6)
+
+== Summary ==
+12 passed, 0 failed, 0 warnings, 2 skipped
+Environment looks good on 'cuda'.
+```
+
+### What it checks
+
+| Check | Why it matters |
+| ----- | -------------- |
+| Python + package imports | `torch`, `torchvision`, `datasets`, `draccus` resolve in the active env |
+| `torch build` | Whether the wheel is CUDA-enabled and which CUDA/cuDNN it was built against |
+| `cuda available` / `cuda devices` | Driver is usable; lists each GPU's name, compute capability and free VRAM |
+| `device compute` | GPU matmul result is verified **against the CPU**, plus a fp32 TFLOP/s number |
+| `conv + autograd` | cuDNN conv, batchnorm and the backward pass — what vision backbones depend on |
+| `mixed precision` | `autocast` (bf16/fp16) and `GradScaler`, used by `--policy.use_amp=true` |
+| `video backend` | torchcodec/pyav choice and whether `ffmpeg` is on `PATH` |
+| `policy train step` | Builds a policy, runs forward → backward → optimizer step → `select_action` |
+| `memory headroom` | Peak VRAM used and how much is left for real training |
+
+### Flags
+
+| Flag | Effect |
+| ---- | ------ |
+| `--device cuda:1` | Pin a specific GPU. An explicit `cuda` request fails if CUDA is unusable, instead of falling back to CPU |
+| `--require-cuda` | Turn a missing GPU into a hard failure even when no `--device` is given |
+| `--policy cortex_agv` | Smoke-test a different policy (`act`, `cortex_agv`) |
+| `--skip-policy` | Imports and CUDA only — a couple of seconds |
+| `--dataset lerobot/pusht` | Additionally load a dataset and decode frame 0 (needs network on first run) |
+| `--verbose` | Print tracebacks for failed checks |
+
+> [!NOTE]
+> The policy check builds a **small** policy from synthetic features with the pretrained backbone disabled, so it needs no dataset, no Hub download and under a GiB of VRAM.
 
 ---
 
