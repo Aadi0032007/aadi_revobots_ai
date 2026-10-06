@@ -164,9 +164,7 @@ class AgxNeroFollower(Robot):
         
         joint_angles_rad = self._read_joint_angles_rad()
         
-        # 1. Map hardware array to software named space
-        # NOTE: Apply your REVERSE offsets/math here if your hardware requires it.
-        # (e.g., obs["shoulder_pan.pos"] = math.degrees(joint_angles_rad[0]) + 5.0)
+        # 1. Map hardware array to software named space (Nero joint space, same as send_action)
         if len(joint_angles_rad) >= 7:
             obs["shoulder_pan.pos"] = math.degrees(joint_angles_rad[0])
             obs["shoulder_lift.pos"] = math.degrees(joint_angles_rad[1])
@@ -183,7 +181,6 @@ class AgxNeroFollower(Robot):
 
         # 2. Gripper read
         gs = self.gripper.get_gripper_status()
-        # Apply reverse scaling if necessary (e.g., raw_gripper / 2.0)
         raw_gripper = float(gs.msg.value) if gs is not None else 0.0
         obs["gripper.pos"] = raw_gripper
         
@@ -237,21 +234,21 @@ class AgxNeroFollower(Robot):
             safe_goals = ensure_safe_goal_position(goal_present, self.config.max_relative_target)
             raw_goals.update(safe_goals)
 
-        # 3. Hardware Math & Command Construction
-        # NOTE: Apply your hardware-specific math/inversions here 
-        # (e.g., pan = raw_goals["shoulder_pan"] - 5.0)
+        # 3. Command Construction
+        # Actions arrive already in Nero joint space. Leader-specific offsets/scaling live with the leader
+        # (e.g. koch_leader_remote/koch_remote_nero_config.py), never here.
         goal_deg_hardware = [
-            raw_goals["shoulder_pan"] - 5.0,   # Index 0
-            raw_goals["shoulder_lift"] + 43.7466,  # Index 1
-            raw_goals["forearm_roll"],     # Index 2
-            -raw_goals["elbow_flex"] + 90.0,   # Index 3
-            raw_goals["wrist_roll"],    # Index 4
-            raw_goals["wrist_pitch"],     # Index 5
+            raw_goals["shoulder_pan"],   # Index 0
+            raw_goals["shoulder_lift"],  # Index 1
+            raw_goals["forearm_roll"],   # Index 2
+            raw_goals["elbow_flex"],     # Index 3
+            raw_goals["wrist_roll"],     # Index 4
+            raw_goals["wrist_pitch"],    # Index 5
             raw_goals["wrist_flex"]      # Index 6
         ]
-        
-        # Calculate gripper (apply scaling or caps here if needed)
-        gripper_cmd = min(raw_goals["gripper"] * 2, 95)
+
+        # Hardware safety cap on the gripper, independent of which leader is driving
+        gripper_cmd = min(raw_goals["gripper"], 95)
 
         # 4. Convert to radians and send to arm
         self.gripper.move_gripper_deg(value=gripper_cmd, force=0.5)

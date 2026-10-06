@@ -27,6 +27,9 @@ uv run python -m lerobot.teleoperators.koch_leader_remote.koch_leader_remote_cli
 
 Being connectionless, there is nothing to connect or reconnect to: this keeps streaming whether or not the
 far end is listening, and the server picks the stream up mid-flight whenever it starts.
+
+By default raw Koch values are streamed. When the follower is an AgileX Nero, pass `--is-follower-nero` and
+every pose is translated into Nero joint space here (offsets in `koch_remote_nero_config.py`) before it is sent.
 """
 
 import argparse
@@ -38,6 +41,7 @@ import uuid
 
 from lerobot.teleoperators.koch_leader.config_koch_leader import KochLeaderConfig
 from lerobot.teleoperators.koch_leader.koch_leader import KochLeader
+from lerobot.teleoperators.koch_leader_remote.koch_remote_nero_config import KochRemoteNeroConfig
 from lerobot.utils.robot_utils import precise_sleep
 from lerobot.utils.utils import init_logging, move_cursor_up
 
@@ -65,7 +69,12 @@ def run_remote_client(
     robot_id: str,
     fps: int,
     gripper_open_pos: float,
+    is_follower_nero: bool | None = None,
 ) -> None:
+    nero_cfg = KochRemoteNeroConfig()
+    if is_follower_nero is not None:
+        nero_cfg.is_follower_nero = is_follower_nero
+
     leader = KochLeader(KochLeaderConfig(port=com_port, id=robot_id, gripper_open_pos=gripper_open_pos))
 
     logger.info(f"Calibration file: {leader.calibration_fpath}")
@@ -80,12 +89,15 @@ def run_remote_client(
     seq = 0
     loop_s = 1 / fps
 
-    logger.info(f"Streaming leader actions to {ip}:{port} at {fps} fps (session {session}). Ctrl-C to stop.")
+    target = "Nero joint space" if nero_cfg.is_follower_nero else "raw Koch values"
+    logger.info(
+        f"Streaming leader actions ({target}) to {ip}:{port} at {fps} fps (session {session}). Ctrl-C to stop."
+    )
     try:
         while True:
             loop_start = time.perf_counter()
 
-            action = leader.get_action()
+            action = nero_cfg.apply(leader.get_action())
             packet = json.dumps({"session": session, "seq": seq, "action": action})
             try:
                 sock.sendto(packet.encode("utf-8"), (ip, port))
@@ -119,10 +131,18 @@ def main():
     parser.add_argument("--id", type=str, default="aadi", help="Id of the arm, selects its calibration file.")
     parser.add_argument("--fps", type=int, default=60, help="Rate at which the arm is read and streamed.")
     parser.add_argument("--gripper-open-pos", type=float, default=45.0, help="Gripper spring-back position.")
+    parser.add_argument(
+        "--is-follower-nero",
+        action="store_true",
+        default=None,  # absent -> use is_follower_nero from koch_remote_nero_config.py (False)
+        help="Map poses into Nero joint space using koch_remote_nero_config.py offsets.",
+    )
     args = parser.parse_args()
 
     init_logging()
-    run_remote_client(args.ip, args.port, args.com, args.id, args.fps, args.gripper_open_pos)
+    run_remote_client(
+        args.ip, args.port, args.com, args.id, args.fps, args.gripper_open_pos, args.is_follower_nero
+    )
 
 
 if __name__ == "__main__":

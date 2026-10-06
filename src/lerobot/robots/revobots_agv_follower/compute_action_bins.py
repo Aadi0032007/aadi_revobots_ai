@@ -83,6 +83,49 @@ def compute_bin_centers_quantile(values: np.ndarray, n_bins: int) -> np.ndarray:
     return 0.5 * (edges[:-1] + edges[1:])
 
 
+def compute_bin_centers_signed_log(min_val: float, max_val: float, n_bins: int) -> np.ndarray:
+    """Symmetric signed-logarithmic bin centers.
+
+    Motivation (the steering problem):
+      - uniform wastes bins: with ±3.5 range and a >90%% zero-spike, most of the
+        bins land in the sparsely-populated tail and the few bins near zero are
+        too coarse to resolve small corrective turns.
+      - quantile compresses the range: the zero-spike eats most percentile mass,
+        so edges cluster near zero and the extremes (±3.5) collapse into 1-2 bins,
+        losing the ability to command a hard turn.
+
+    Signed-log fixes both: fine resolution near zero (small corrections AND the
+    bulk of the data), progressively coarser toward the tails (rare large turns,
+    where exact magnitude matters less — a 3.2 vs 3.4 rad/s turn is
+    operationally the same). The full range is preserved end-to-end.
+
+    Centers are symmetric about zero and include an exact zero center when
+    n_bins is odd (so straight-driving frames map to a dedicated zero bin).
+
+    Works in whatever space you pass in (we pass normalized space, consistent
+    with the other strategies).
+    """
+    # Symmetric half-range so positive and negative turns are binned identically.
+    half = max(abs(min_val), abs(max_val))
+
+    if n_bins % 2 == 1:
+        # Odd: one center at exactly 0, (n_bins-1)/2 on each side.
+        per_side = (n_bins - 1) // 2
+        # log-spaced magnitudes from a small epsilon up to `half`.
+        # epsilon controls how fine the smallest non-zero bin is.
+        eps = half / 1000.0 if half > 0 else 1e-6
+        mags = np.geomspace(eps, half, per_side)
+        centers = np.concatenate([-mags[::-1], [0.0], mags])
+    else:
+        # Even: no exact zero; smallest bins straddle zero symmetrically.
+        per_side = n_bins // 2
+        eps = half / 1000.0 if half > 0 else 1e-6
+        mags = np.geomspace(eps, half, per_side)
+        centers = np.concatenate([-mags[::-1], mags])
+
+    return centers.astype(np.float64)
+
+
 def actions_to_bin_indices(actions: np.ndarray, bin_centers: np.ndarray) -> np.ndarray:
     """For each action, return the closest bin index. actions: (N,). centers: (n_bins,)."""
     distances = np.abs(actions[:, None] - bin_centers[None, :])
@@ -110,12 +153,100 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--out", required=True,
                     help="Output .pt path. The ACT config's `action_bins_path` points here.")
     ap.add_argument("--n-bins", type=int, default=31)
-    ap.add_argument("--strategy", choices=("uniform", "quantile"), default="uniform")
+    ap.add_argument("--strategy", choices=("uniform", "quantile", "signed_log"), default="uniform")
     ap.add_argument("--alpha", type=float, default=0.5,
                     help="Class-weight exponent (0=uniform, 0.5=sqrt-inv-freq, 1=inv-freq).")
     ap.add_argument("--action-keys", nargs="+", default=["lin_x", "ang_z"],
                     help="Names of action components for logging only.")
     return ap.parse_args()
+
+
+def print_bin_diagnostics(
+    name,
+    actions_norm_d,
+    actions_raw_d,
+    centers_norm,
+    centers_raw,
+    bin_idx,
+    weights,
+    n_bins,
+    hist_width=40,
+):
+    """Full analysis of the binning for one action dimension.
+
+    Sections:
+      1. Distribution stats of the raw values (mean/std/min/max/quantiles/zero mass)
+      2. Full per-bin table: center, count, freq %, cumulative %, class weight
+      3. Text histogram of frequency across bins
+      4. Coverage / quantization analysis (bin width, half-bin error, empty bins)
+      5. Weight distribution summary
+    """
+    N = actions_raw_d.shape[0]
+    counts = np.bincount(bin_idx, minlength=n_bins).astype(np.int64)
+    freq = counts / max(N, 1)
+    cum = np.cumsum(freq)
+
+    sep = "    " + "-" * 72
+    print("")
+    print(sep)
+    print(f"    [{name}]  ({N} frames)")
+    print(sep)
+
+    # 1. distribution stats (raw units)
+    q = np.percentile(actions_raw_d, [1, 5, 25, 50, 75, 95, 99])
+    zero_frac = np.mean(np.abs(actions_raw_d) < 1e-3)
+    print("    distribution (raw units):")
+    print(f"      mean={actions_raw_d.mean():+.4f}  std={actions_raw_d.std():.4f}  "
+          f"min={actions_raw_d.min():+.4f}  max={actions_raw_d.max():+.4f}")
+    print(f"      q01={q[0]:+.4f}  q05={q[1]:+.4f}  q25={q[2]:+.4f}  "
+          f"q50={q[3]:+.4f}  q75={q[4]:+.4f}  q95={q[5]:+.4f}  q99={q[6]:+.4f}")
+    print(f"      zero-spike (fraction |value|<1e-3): {zero_frac*100:.1f}%")
+
+    # 2. full per-bin table
+    print(f"\n    per-bin table (all {n_bins} bins):")
+    print(f"      {'bin':>3}  {'center_raw':>11}  {'center_norm':>11}  "
+          f"{'count':>7}  {'freq%':>7}  {'cum%':>7}  {'weight':>7}")
+    mode_count = counts.max()
+    for b in range(n_bins):
+        flag = ""
+        if counts[b] == 0:
+            flag = "  <EMPTY>"
+        elif counts[b] == mode_count:
+            flag = "  <- mode"
+        print(f"      {b:>3d}  {centers_raw[b]:>+11.4f}  {centers_norm[b]:>+11.4f}  "
+              f"{counts[b]:>7d}  {freq[b]*100:>6.2f}%  {cum[b]*100:>6.2f}%  "
+              f"{weights[b]:>7.3f}{flag}")
+
+    # 3. text histogram
+    print(f"\n    frequency histogram (bar ~ share of frames in bin):")
+    fmax = freq.max() if freq.max() > 0 else 1.0
+    for b in range(n_bins):
+        bar = "#" * int(round(freq[b] / fmax * hist_width))
+        print(f"      {b:>3d} raw={centers_raw[b]:>+8.3f} |{bar:<{hist_width}}| {freq[b]*100:5.2f}%")
+
+    # 4. coverage / quantization
+    n_empty = int((counts == 0).sum())
+    n_nonempty = n_bins - n_empty
+    raw_widths = np.diff(centers_raw)
+    quant_err = np.abs(actions_raw_d - centers_raw[bin_idx])
+    print(f"\n    coverage / quantization:")
+    print(f"      bins used (non-empty): {n_nonempty}/{n_bins} "
+          f"({n_nonempty/n_bins*100:.0f}%)   empty bins: {n_empty}")
+    print(f"      raw bin width: mean={raw_widths.mean():.4f}  "
+          f"min={raw_widths.min():.4f}  max={raw_widths.max():.4f}")
+    print(f"      half-bin (theoretical min quantization error): ~{raw_widths.mean()/2:.4f}")
+    print(f"      actual quantization error |value-center|: "
+          f"mean={quant_err.mean():.4f}  max={quant_err.max():.4f}")
+
+    # 5. weight distribution
+    per_frame_w = weights[bin_idx]
+    print(f"\n    class weights:")
+    print(f"      range: [{weights.min():.3f}, {weights.max():.3f}]   "
+          f"spread: {weights.max()/max(weights.min(),1e-9):.1f}x")
+    print(f"      mean weight (should be ~1.0): {weights.mean():.3f}")
+    print(f"      data-weighted mean (per-frame): {per_frame_w.mean():.3f}  "
+          f"(>1 => rare bins emphasized on average)")
+    print(sep)
 
 
 def main() -> int:
@@ -168,6 +299,10 @@ def main() -> int:
             norm_min = float(actions_norm[:, d].min())
             norm_max = float(actions_norm[:, d].max())
             centers_norm = compute_bin_centers_uniform(norm_min, norm_max, args.n_bins)
+        elif args.strategy == "signed_log":
+            norm_min = float(actions_norm[:, d].min())
+            norm_max = float(actions_norm[:, d].max())
+            centers_norm = compute_bin_centers_signed_log(norm_min, norm_max, args.n_bins)
         else:
             centers_norm = compute_bin_centers_quantile(actions_norm[:, d], args.n_bins)
 
@@ -182,23 +317,17 @@ def main() -> int:
         bin_centers_raw[d]  = centers_raw
         class_weights[d]    = weights
 
-        # Diagnostics — show the user what they're getting
-        counts = np.bincount(bin_idx, minlength=args.n_bins)
-        top3 = np.argsort(counts)[-3:][::-1]
-        bot3 = np.argsort(counts)[:3]
-
-        print(f"\n    [{name}]")
-        print(f"      raw range    : [{centers_raw.min():+.3f}, {centers_raw.max():+.3f}]")
-        print(f"      weight range : [{weights.min():.3f}, {weights.max():.3f}]   "
-              f"(rare bins get {weights.max() / weights.min():.0f}x more attention)")
-        print(f"      most populated bins:")
-        for b in top3:
-            print(f"        bin {b:>3d}  raw={centers_raw[b]:+7.3f}  "
-                  f"count={counts[b]:>6d}  weight={weights[b]:6.3f}")
-        print(f"      least populated bins:")
-        for b in bot3:
-            print(f"        bin {b:>3d}  raw={centers_raw[b]:+7.3f}  "
-                  f"count={counts[b]:>6d}  weight={weights[b]:6.3f}")
+        # Diagnostics — full per-bin frequency + weight analysis
+        print_bin_diagnostics(
+            name           = name,
+            actions_norm_d = actions_norm[:, d],
+            actions_raw_d  = actions[:, d],
+            centers_norm   = centers_norm,
+            centers_raw    = centers_raw,
+            bin_idx        = bin_idx,
+            weights        = weights,
+            n_bins         = args.n_bins,
+        )
 
     # ── Save ─────────────────────────────────────────────────────────────────
     payload = {
