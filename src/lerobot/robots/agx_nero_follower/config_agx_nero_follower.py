@@ -34,8 +34,8 @@ class AgxNeroFollowerConfig(RobotConfig):
     # None → auto-detected from the current OS and available CAN ports
     interface: str | None = None
     channel: str | None = None
-    # Firmware version — "default" (<=1.10) | "v111" (>=1.11)
-    firmware_version: str = "v111"
+    # Firmware version — "default" (<=1.10) | "v111" (1.11) | "v112" (1.12) | "v120" (1.20) | "v121" (1.21)
+    firmware_version: str = "v121"
     bitrate: int = 1_000_000
     # Motion speed 0-100%
     speed_percent: int = 20

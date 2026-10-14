@@ -89,7 +89,13 @@ class AgxNeroFollower(Robot):
 
         from pyAgxArm import AgxArmFactory, ArmModel, NeroFW, create_agx_arm_config
 
-        fw_map = {"default": NeroFW.DEFAULT, "v111": NeroFW.V111}
+        fw_map = {
+            "default": NeroFW.DEFAULT,
+            "v111": NeroFW.V111,
+            "v112": NeroFW.V112,
+            "v120": NeroFW.V120,
+            "v121": NeroFW.V121,
+        }
         fw = fw_map.get(self.config.firmware_version, NeroFW.DEFAULT)
 
         arm_cfg = create_agx_arm_config(
