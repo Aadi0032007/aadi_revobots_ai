@@ -149,6 +149,7 @@ from lerobot.teleoperators import (  # noqa: F401
     reachy2_teleoperator,
     rebot_102_leader,
     so_leader,
+    so_leader_remote,
     unitree_g1,
 )
 from lerobot.teleoperators.keyboard import KeyboardTeleop
