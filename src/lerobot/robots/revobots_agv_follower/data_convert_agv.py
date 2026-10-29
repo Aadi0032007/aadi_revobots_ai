@@ -38,11 +38,18 @@ recorder uses:
 Input layout (produced by split_session_agv.py):
 
     <parent-dir>/
-        session_0/  session_0.mp4  session_0.jsonl
-        session_1/  session_1.mp4  session_1.jsonl
+        session_0/  session_0.mp4  session_0.jsonl  [session_0.json  session_0_depth.u16]
+        session_1/  session_1.mp4  session_1.jsonl  [session_1.json  session_1_depth.u16]
         ...
 
 Each session_<i>/ folder becomes ONE episode.
+
+Depth (RealSense use_depth=True on the AGV): session_<i>_depth.u16 holds raw
+uint16 millimetre maps, frame i == video frame i. When present (or forced with
+--with-depth yes) the schema gains observation.images.front_depth with shape
+(H, W, 1); hw_to_dataset_features flags it is_depth_map and LeRobotDataset
+stores it through its depth encoder (12-bit log quantisation + lossless HEVC),
+exactly what lerobot-record does for a RealSense inside the robot class.
 
 Expected JSONL row format (one row per video frame, same order as frames):
 
@@ -52,6 +59,7 @@ Expected JSONL row format (one row per video frame, same order as frames):
       "angular_velocity": 0.0,
       "gps_latitude":  45.45799...,
       "gps_longitude": -122.85448...,
+      "status_bit": 0,
       ... (any other fields are ignored)
     }
 """
@@ -65,6 +73,7 @@ import cv2
 import numpy as np
 from tqdm import tqdm
 
+from lerobot.configs.video import DepthEncoderConfig
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 from lerobot.datasets.utils import build_dataset_frame, hw_to_dataset_features
 from lerobot.datasets.video_utils import VideoEncodingManager
@@ -82,9 +91,18 @@ CAMERA_KEY = "front"
 CAMERA_HEIGHT = 480
 CAMERA_WIDTH = 640
 
+# Depth map of the same camera (RealSense use_depth=True). LeRobot's `<cam>_depth`
+# convention, as RevobotsAGVFollower._cameras_ft / so_follower emit it live:
+# observation.images.front_depth, (H, W, 1) uint16 millimetres.
+DEPTH_KEY = f"{CAMERA_KEY}_depth"
+DEPTH_FILE_SUFFIX = "_depth.u16"     # session_<i>/session_<i>_depth.u16 (split_session_agv.py)
+
 ROBOT_ACTION_FEATURES = {
     "lin_x": float,
     "ang_z": float,
+    # status_bit is an int, but declared float: hw_to_dataset_features only keeps
+    # `float` entries and packs the action into one float32 vector.
+    "status_bit": float,
 }
 
 ROBOT_OBSERVATION_FEATURES = {
@@ -97,13 +115,21 @@ ROBOT_OBSERVATION_FEATURES = {
 }
 
 
-def build_dataset_features() -> dict:
+def build_dataset_features(with_depth: bool = False, depth_hw: tuple | None = None) -> dict:
     """Build the LeRobotDataset feature schema using the same helper the official
     record script uses. With use_videos=True at create time, the camera tuple
     becomes a 'video' feature; scalar floats get packed into 'observation.state'
-    and 'action' vectors."""
+    and 'action' vectors.
+
+    with_depth adds DEPTH_KEY as (H, W, 1): the single channel is what makes
+    hw_to_dataset_features set info["is_depth_map"]=True, which routes the
+    feature to LeRobotDataset's depth encoder instead of the RGB one."""
+    obs_hw = dict(ROBOT_OBSERVATION_FEATURES)
+    if with_depth:
+        h, w = depth_hw or (CAMERA_HEIGHT, CAMERA_WIDTH)
+        obs_hw[DEPTH_KEY] = (int(h), int(w), 1)
     action_features = hw_to_dataset_features(ROBOT_ACTION_FEATURES, ACTION)
-    obs_features = hw_to_dataset_features(ROBOT_OBSERVATION_FEATURES, OBS_STR)
+    obs_features = hw_to_dataset_features(obs_hw, OBS_STR)
     return {**action_features, **obs_features}
 
 
@@ -115,21 +141,27 @@ def build_dataset_features() -> dict:
 # Edit this function if your JSONL uses a different layout.
 # ---------------------------------------------------------------------------
 
-def row_to_raw_obs_and_action(row: dict, image_rgb: np.ndarray) -> tuple[dict, dict]:
+def row_to_raw_obs_and_action(
+    row: dict, image_rgb: np.ndarray, depth_u16: np.ndarray | None = None
+) -> tuple[dict, dict]:
     """Return (raw_observation, raw_action) in the robot's native key space.
 
     Schema produced by the upstream recorder is flat. Action and observation
     share the same velocity fields (commanded == measured for this dataset).
+    depth_u16, when given, is the (H, W, 1) uint16 mm map stored under DEPTH_KEY —
+    the same array RealSenseCamera.read_latest_depth() returns on a live robot.
     """
     lin_x = float(row.get("linear_velocity", 0.0))
     ang_z = float(row.get("angular_velocity", 0.0))
     lat   = float(row.get("gps_latitude",  0.0))
     lon   = float(row.get("gps_longitude", 0.0))
     ori   = float(row.get("orientation",    0.0))
+    status_bit = int(row.get("status_bit", 0))
 
     raw_action = {
-        "lin_x": lin_x,
-        "ang_z": ang_z,
+        "lin_x":      lin_x,
+        "ang_z":      ang_z,
+        "status_bit": status_bit,
     }
     raw_observation = {
         "lin_x":       lin_x,
@@ -139,7 +171,50 @@ def row_to_raw_obs_and_action(row: dict, image_rgb: np.ndarray) -> tuple[dict, d
         "orientation": ori,
         CAMERA_KEY:    image_rgb,
     }
+    if depth_u16 is not None:
+        raw_observation[DEPTH_KEY] = depth_u16
     return raw_observation, raw_action
+
+
+# ---------------------------------------------------------------------------
+# Depth sidecar (session_<i>_depth.u16 + session_<i>.json from the splitter)
+# ---------------------------------------------------------------------------
+
+def load_session_meta(session_dir: Path) -> dict:
+    """session_<i>.json written by split_session_agv.py ({} for older splits)."""
+    p = session_dir / f"{session_dir.name}.json"
+    if not p.is_file():
+        return {}
+    try:
+        with open(p, "r") as f:
+            return json.load(f) or {}
+    except Exception as exc:
+        print(f"[!] could not read {p}: {exc}")
+        return {}
+
+
+def session_depth_path(session_dir: Path) -> Path | None:
+    """Path of the session's depth file, or None when it has no depth."""
+    meta = load_session_meta(session_dir)
+    name = meta.get("depth") or f"{session_dir.name}{DEPTH_FILE_SUFFIX}"
+    p = session_dir / name
+    return p if p.is_file() else None
+
+
+def open_session_depth(session_dir: Path, default_hw=(CAMERA_HEIGHT, CAMERA_WIDTH)):
+    """Memory-map session_<i>_depth.u16 as (n, H, W) uint16 mm, or None.
+    Frame i pairs with video frame i / JSONL row i (the splitter slices all
+    three on the same range)."""
+    p = session_depth_path(session_dir)
+    if p is None:
+        return None
+    meta = load_session_meta(session_dir)
+    h = int(meta.get("depth_height") or default_hw[0])
+    w = int(meta.get("depth_width") or default_hw[1])
+    n = p.stat().st_size // (h * w * 2)
+    if n == 0:
+        return None
+    return np.memmap(p, dtype=np.uint16, mode="r", shape=(n, h, w))
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +292,7 @@ def add_session_as_episode(
     dataset: LeRobotDataset,
     task: str,
     robot_observation_processor,                          # [SYMMETRY] new arg
+    with_depth: bool = False,
 ) -> int:
     """Read one session_<i>/ folder and append it as a single episode.
     Mirrors the inner body of record_loop() — just without the live robot.
@@ -224,12 +300,23 @@ def add_session_as_episode(
     [SYMMETRY] raw_obs is run through `robot_observation_processor` exactly
     the way `inference_api.inference_loop()` does, so the dataset stores the
     same shape the policy will be queried with at inference time.
+
+    with_depth: the dataset schema carries DEPTH_KEY, so every frame must also
+    supply the (H, W, 1) uint16 depth map from session_<i>_depth.u16.
     """
     name = session_dir.name
     mp4_path = session_dir / f"{name}.mp4"
     jsonl_path = session_dir / f"{name}.jsonl"
 
     rows = load_jsonl(jsonl_path)
+
+    depth = open_session_depth(session_dir) if with_depth else None
+    if with_depth and depth is None:
+        raise SystemExit(
+            f"[!] {name}: the dataset schema has {DEPTH_KEY} but "
+            f"{name}{DEPTH_FILE_SUFFIX} is missing or empty. Re-split a depth-enabled "
+            f"recording, or run with --with-depth no."
+        )
 
     cap = cv2.VideoCapture(str(mp4_path))
     if not cap.isOpened():
@@ -238,6 +325,8 @@ def add_session_as_episode(
 
     total_frames_vid = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     total_frames = min(total_frames_vid, len(rows))
+    if depth is not None:
+        total_frames = min(total_frames, int(depth.shape[0]))
 
     pbar = tqdm(
         total=total_frames,
@@ -256,7 +345,13 @@ def add_session_as_episode(
             # cv2 reads BGR; cameras in lerobot return RGB.
             frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
 
-            raw_obs, raw_action = row_to_raw_obs_and_action(rows[i], frame_rgb)
+            depth_u16 = None
+            if depth is not None:
+                # (H, W) uint16 mm out of the memmap → (H, W, 1), a real copy so the
+                # image writer / streaming encoder never hold a view into the file.
+                depth_u16 = np.array(depth[i])[..., np.newaxis]
+
+            raw_obs, raw_action = row_to_raw_obs_and_action(rows[i], frame_rgb, depth_u16)
 
             # [SYMMETRY] Apply the same observation processor that the
             # inference loop applies before build_dataset_frame. If the
@@ -280,6 +375,7 @@ def add_session_as_episode(
                 pbar.set_postfix(
                     lin=f"{raw_action['lin_x']:+.2f}",
                     ang=f"{raw_action['ang_z']:+.2f}",
+                    st=raw_action["status_bit"],
                 )
             pbar.update(1)
     finally:
@@ -324,7 +420,52 @@ def parse_args():
                    help="Skip the observation processor — write raw obs straight "
                         "to the dataset. Use only if you also patch inference to "
                         "skip its observation processor. Default OFF (i.e. apply).")
+    p.add_argument("--with-depth", choices=["auto", "yes", "no"], default="auto",
+                   help="Add observation.images.front_depth from session_<i>_depth.u16 "
+                        "(RealSense depth, uint16 mm). auto = yes when every session "
+                        "has the file, no when none has it, error when mixed.")
+    p.add_argument("--depth-max", type=float, default=None,
+                   help="Depth encoder: metres mapped to the top 12-bit code "
+                        "(LeRobot default 10.0). Lower it to spend the codes on the "
+                        "range the AGV actually sees.")
+    p.add_argument("--depth-min", type=float, default=None,
+                   help="Depth encoder: metres mapped to code 0 (LeRobot default 0.01).")
     return p.parse_args()
+
+
+def resolve_depth(sessions: list[Path], with_depth: str) -> tuple[bool, tuple | None]:
+    """Decide whether the dataset carries depth and with what (H, W).
+
+    Returns (use_depth, depth_hw). 'auto' requires all-or-nothing across the
+    sessions: a mixed set would silently produce an episode that cannot be
+    added, so it is rejected up front.
+    """
+    have = [s for s in sessions if session_depth_path(s) is not None]
+    if with_depth == "auto":
+        if len(have) == len(sessions):
+            use_depth = True
+        elif not have:
+            use_depth = False
+        else:
+            missing = [s.name for s in sessions if s not in have]
+            raise SystemExit(
+                f"[!] {len(have)}/{len(sessions)} sessions have depth; without it: "
+                f"{missing[:10]}{' …' if len(missing) > 10 else ''}. "
+                f"Pass --with-depth yes or --with-depth no explicitly."
+            )
+    else:
+        use_depth = with_depth == "yes"
+
+    if not use_depth:
+        return False, None
+    if not have:
+        raise SystemExit(f"[!] --with-depth yes but no session has a *{DEPTH_FILE_SUFFIX} file.")
+    d0 = open_session_depth(have[0])
+    if d0 is None:
+        raise SystemExit(f"[!] {have[0].name}: depth file present but empty.")
+    depth_hw = (int(d0.shape[1]), int(d0.shape[2]))
+    del d0
+    return True, depth_hw
 
 
 def run_convert(
@@ -339,6 +480,9 @@ def run_convert(
     push_to_hub=False,
     no_videos=False,
     no_obs_processor=False,
+    with_depth="auto",
+    depth_max=None,
+    depth_min=None,
 ):
     """Build a LeRobot dataset from split sessions under `parent_dir`.
 
@@ -353,14 +497,34 @@ def run_convert(
     if not sessions:
         raise SystemExit(f"[!] No session_<i>/ folders found in {input_root}")
 
+    use_depth, depth_hw = resolve_depth(sessions, with_depth)
+
+    # Depth encoder = LeRobot's own (12-bit log quantisation, lossless HEVC
+    # gray12le). Only the metre range is tunable here; it is persisted in
+    # meta/info.json so loading dequantises with the same parameters.
+    depth_encoder = None
+    if use_depth:
+        enc_kwargs = {}
+        if depth_max is not None:
+            enc_kwargs["depth_max"] = float(depth_max)
+        if depth_min is not None:
+            enc_kwargs["depth_min"] = float(depth_min)
+        depth_encoder = DepthEncoderConfig(**enc_kwargs)
+
     print(f"[*] Input root:    {input_root}")
     print(f"[*] Sessions:      {len(sessions)}")
     print(f"[*] Repo id:       {repo_id}")
     print(f"[*] FPS:           {fps}")
     print(f"[*] Resume:        {resume}")
     print(f"[*] Obs processor: {'DISABLED' if no_obs_processor else 'ENABLED (symmetric with inference)'}")
+    if use_depth:
+        print(f"[*] Depth:         {DEPTH_KEY} {depth_hw[1]}x{depth_hw[0]} uint16 mm → "
+              f"{depth_encoder.vcodec}/{depth_encoder.pix_fmt}, "
+              f"{depth_encoder.depth_min}–{depth_encoder.depth_max} m, log={depth_encoder.use_log}")
+    else:
+        print(f"[*] Depth:         none")
 
-    features = build_dataset_features()
+    features = build_dataset_features(with_depth=use_depth, depth_hw=depth_hw)
 
     # ── [SYMMETRY] Build the observation processor exactly the way
     # `build_policy_pipeline` does. The first return value (the env-side
@@ -387,9 +551,20 @@ def run_convert(
             dataset = LeRobotDataset(
                 repo_id=repo_id,
                 batch_encoding_size=video_encoding_batch_size,
+                depth_encoder=depth_encoder,
             )
             start_idx = dataset.num_episodes
+            depth_feature = f"{OBS_STR}.images.{DEPTH_KEY}"
+            if (depth_feature in dataset.features) != use_depth:
+                raise SystemExit(
+                    f"[!] --resume: existing dataset "
+                    f"{'has' if depth_feature in dataset.features else 'lacks'} {depth_feature} "
+                    f"but this run {'adds' if use_depth else 'omits'} depth. "
+                    f"Match --with-depth to the dataset or use a new --repo-id."
+                )
             print(f"[*] Resuming dataset at episode index {start_idx}")
+        except SystemExit:
+            raise
         except Exception as e:
             print(f"[!] --resume failed to load existing dataset ({e}); "
                   f"creating new one.")
@@ -401,6 +576,7 @@ def run_convert(
                 use_videos=not no_videos,
                 image_writer_threads=image_writer_threads,
                 batch_encoding_size=video_encoding_batch_size,
+                depth_encoder=depth_encoder,
             )
             start_idx = 0
     else:
@@ -412,6 +588,7 @@ def run_convert(
             use_videos=not no_videos,
             image_writer_threads=image_writer_threads,
             batch_encoding_size=video_encoding_batch_size,
+            depth_encoder=depth_encoder,
         )
         start_idx = 0
 
@@ -439,6 +616,7 @@ def run_convert(
                         dataset,
                         task,
                         robot_observation_processor,           # [SYMMETRY] pass it down
+                        with_depth=use_depth,
                     )
                     total_frames += n
                     outer.set_postfix(frames=total_frames)
@@ -504,6 +682,9 @@ def main():
         push_to_hub=args.push_to_hub,
         no_videos=args.no_videos,
         no_obs_processor=args.no_obs_processor,
+        with_depth=args.with_depth,
+        depth_max=args.depth_max,
+        depth_min=args.depth_min,
     )
 
 

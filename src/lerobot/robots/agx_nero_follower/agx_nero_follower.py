@@ -56,7 +56,16 @@ class AgxNeroFollower(Robot):
 
     @property
     def _cameras_ft(self) -> dict[str, tuple]:
-        return {cam: (self.cameras[cam].height, self.cameras[cam].width, 3) for cam in self.cameras}
+        # Same convention as so_follower: RGB cameras expose `<cam>` as (H, W, 3);
+        # a RealSense with use_depth=True additionally exposes `<cam>_depth` as
+        # (H, W, 1) uint16 millimetres, which hw_to_dataset_features flags as a depth map.
+        features: dict[str, tuple] = {}
+        for cam in self.cameras:
+            if getattr(self.cameras[cam], "use_rgb", True):
+                features[cam] = (self.cameras[cam].height, self.cameras[cam].width, 3)
+            if getattr(self.cameras[cam], "use_depth", False):
+                features[f"{cam}_depth"] = (self.cameras[cam].height, self.cameras[cam].width, 1)
+        return features
 
     @property
     def observation_features(self) -> dict[str, Any]:
@@ -193,11 +202,18 @@ class AgxNeroFollower(Robot):
         self.logs["read_pos_dt_s"] = time.perf_counter() - t0
     
         for cam_key, cam in self.cameras.items():
-            start = time.perf_counter()
-            obs[cam_key] = cam.read_latest()
-            dt_ms = (time.perf_counter() - start) * 1e3
-            logger.debug(f"{self} read {cam_key}: {dt_ms:.1f}ms")
-          
+            if getattr(cam, "use_rgb", True):
+                start = time.perf_counter()
+                obs[cam_key] = cam.read_latest()
+                dt_ms = (time.perf_counter() - start) * 1e3
+                logger.debug(f"{self} read {cam_key}: {dt_ms:.1f}ms")
+
+            if getattr(cam, "use_depth", False):
+                start = time.perf_counter()
+                obs[f"{cam_key}_depth"] = cam.read_latest_depth()
+                dt_ms = (time.perf_counter() - start) * 1e3
+                logger.debug(f"{self} read {cam_key} depth: {dt_ms:.1f}ms")
+
         return obs
 
     # ------------------------------------------------------------------

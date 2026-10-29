@@ -96,6 +96,14 @@ def parse_args():
     p.add_argument("--push-to-hub", action="store_true")
     p.add_argument("--no-videos", action="store_true")
     p.add_argument("--no-obs-processor", action="store_true")
+    # Depth (RealSense use_depth=True recordings carry depth.u16; the split
+    # step slices it into session_<i>_depth.u16 and the converter adds
+    # observation.images.front_depth). See data_convert_agv.py --help.
+    p.add_argument("--with-depth", choices=["auto", "yes", "no"], default="auto")
+    p.add_argument("--depth-max", type=float, default=None,
+                   help="Depth encoder upper range in metres (LeRobot default 10.0).")
+    p.add_argument("--depth-min", type=float, default=None,
+                   help="Depth encoder lower range in metres (LeRobot default 0.01).")
     return p.parse_args()
 
 
@@ -148,6 +156,9 @@ def main():
         push_to_hub=args.push_to_hub,
         no_videos=args.no_videos,
         no_obs_processor=args.no_obs_processor,
+        with_depth=args.with_depth,
+        depth_max=args.depth_max,
+        depth_min=args.depth_min,
     )
 
     print(f"\n[pipeline] Done. Dataset at: {dataset_root}")

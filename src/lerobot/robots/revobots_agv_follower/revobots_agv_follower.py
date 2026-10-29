@@ -107,7 +107,17 @@ class RevobotsAGVFollower(Robot):
 
     @property
     def _cameras_ft(self) -> dict[str, tuple[int | None, int | None, int]]:
-        return {cam: (self.cameras[cam].height, self.cameras[cam].width, 3) for cam in self.cameras}
+        # Same convention as so_follower / agx_nero_follower: RGB cameras expose
+        # `<cam>` as (H, W, 3); a RealSense with use_depth=True additionally exposes
+        # `<cam>_depth` as (H, W, 1) uint16 millimetres, which hw_to_dataset_features
+        # flags as a depth map. data_convert_agv.py mirrors this schema offline.
+        features: dict[str, tuple[int | None, int | None, int]] = {}
+        for cam in self.cameras:
+            if getattr(self.cameras[cam], "use_rgb", True):
+                features[cam] = (self.cameras[cam].height, self.cameras[cam].width, 3)
+            if getattr(self.cameras[cam], "use_depth", False):
+                features[f"{cam}_depth"] = (self.cameras[cam].height, self.cameras[cam].width, 1)
+        return features
 
     @cached_property
     def observation_features(self) -> dict[str, type | tuple]:
@@ -117,6 +127,7 @@ class RevobotsAGVFollower(Robot):
         - lat / long: float - GPS coordinates
         - orientation: float - Heading in degrees
         - camera keys: (height, width, 3) - RGB frames
+        - `<cam>_depth` keys: (height, width, 1) - uint16 mm depth (RealSense use_depth)
         """
         return {
             OBS_LINEAR_VEL: float,
@@ -236,10 +247,17 @@ class RevobotsAGVFollower(Robot):
         }
 
         for cam_key, cam in self.cameras.items():
-            start = time.perf_counter()
-            obs_dict[cam_key] = cam.read_latest()
-            dt_ms = (time.perf_counter() - start) * 1e3
-            logger.debug(f"{self} read {cam_key}: {dt_ms:.1f}ms")
+            if getattr(cam, "use_rgb", True):
+                start = time.perf_counter()
+                obs_dict[cam_key] = cam.read_latest()
+                dt_ms = (time.perf_counter() - start) * 1e3
+                logger.debug(f"{self} read {cam_key}: {dt_ms:.1f}ms")
+
+            if getattr(cam, "use_depth", False):
+                start = time.perf_counter()
+                obs_dict[f"{cam_key}_depth"] = cam.read_latest_depth()
+                dt_ms = (time.perf_counter() - start) * 1e3
+                logger.debug(f"{self} read {cam_key} depth: {dt_ms:.1f}ms")
 
         return obs_dict
 

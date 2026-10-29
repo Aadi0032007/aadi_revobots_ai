@@ -214,6 +214,12 @@ CAMERA_KEY    = "front"
 CAMERA_HEIGHT = 480
 CAMERA_WIDTH  = 640
 
+# Depth of the same camera (RealSense use_depth=True): LeRobot's `<cam>_depth`
+# convention, observation.images.front_depth, (H, W, 1) uint16 mm.
+DEPTH_KEY         = f"{CAMERA_KEY}_depth"
+DEPTH_IMAGE_KEY   = f"{OBS_STR}.images.{DEPTH_KEY}"
+DEPTH_FILE_SUFFIX = "_depth.u16"     # session_<i>/session_<i>_depth.u16
+
 ROBOT_ACTION_FEATURES = {
     "lin_x": float,
     "ang_z": float,
@@ -229,13 +235,32 @@ ROBOT_OBSERVATION_FEATURES = {
 }
 
 
-def build_dataset_features() -> dict:
+def build_dataset_features(with_depth: bool = False, depth_hw: tuple | None = None) -> dict:
+    """Mirrors data_convert_agv.build_dataset_features: with_depth adds DEPTH_KEY
+    as (H, W, 1), which hw_to_dataset_features flags is_depth_map."""
+    obs_hw = dict(ROBOT_OBSERVATION_FEATURES)
+    if with_depth:
+        h, w = depth_hw or (CAMERA_HEIGHT, CAMERA_WIDTH)
+        obs_hw[DEPTH_KEY] = (int(h), int(w), 1)
     action_features = hw_to_dataset_features(ROBOT_ACTION_FEATURES, ACTION)
-    obs_features    = hw_to_dataset_features(ROBOT_OBSERVATION_FEATURES, OBS_STR)
+    obs_features    = hw_to_dataset_features(obs_hw, OBS_STR)
     return {**action_features, **obs_features}
 
 
-def row_to_raw_obs_and_action(row: dict, image_rgb: np.ndarray) -> tuple[dict, dict]:
+def depth_opts_from_dataset(ds_features: dict) -> dict:
+    """Kwargs for build_dataset_features() so the eval schema follows the dataset
+    the policy was trained on: depth on iff the dataset has DEPTH_IMAGE_KEY."""
+    ft = ds_features.get(DEPTH_IMAGE_KEY)
+    if not ft:
+        return {"with_depth": False}
+    shape = tuple(ft.get("shape") or ())
+    depth_hw = (int(shape[0]), int(shape[1])) if len(shape) == 3 else None
+    return {"with_depth": True, "depth_hw": depth_hw}
+
+
+def row_to_raw_obs_and_action(
+    row: dict, image_rgb: np.ndarray, depth_u16: np.ndarray | None = None
+) -> tuple[dict, dict]:
     """Same function as build_lerobot_dataset.row_to_raw_obs_and_action.
     Inlined here so this script has zero coupling to the converter file."""
     lin_x = float(row.get("linear_velocity",  0.0))
@@ -253,7 +278,37 @@ def row_to_raw_obs_and_action(row: dict, image_rgb: np.ndarray) -> tuple[dict, d
         "orientation": ori,
         CAMERA_KEY:    image_rgb,
     }
+    if depth_u16 is not None:
+        raw_observation[DEPTH_KEY] = depth_u16
     return raw_observation, raw_action
+
+
+def load_session_meta(session_dir: Path) -> dict:
+    """session_<i>.json written by split_session_agv.py ({} for older splits)."""
+    p = session_dir / f"{session_dir.name}.json"
+    if not p.is_file():
+        return {}
+    try:
+        with open(p, "r") as f:
+            return json.load(f) or {}
+    except Exception as exc:
+        print(f"[!] could not read {p}: {exc}")
+        return {}
+
+
+def open_session_depth(session_dir: Path, default_hw=(CAMERA_HEIGHT, CAMERA_WIDTH)):
+    """Memory-map session_<i>_depth.u16 as (n, H, W) uint16 mm, or None.
+    Same layout the converter reads: frame i == video frame i == JSONL row i."""
+    meta = load_session_meta(session_dir)
+    p = session_dir / (meta.get("depth") or f"{session_dir.name}{DEPTH_FILE_SUFFIX}")
+    if not p.is_file():
+        return None
+    h = int(meta.get("depth_height") or default_hw[0])
+    w = int(meta.get("depth_width") or default_hw[1])
+    n = p.stat().st_size // (h * w * 2)
+    if n == 0:
+        return None
+    return np.memmap(p, dtype=np.uint16, mode="r", shape=(n, h, w))
 
 
 # ── Session discovery ───────────────────────────────────────────────────────
@@ -684,6 +739,21 @@ def _tensor_to_hwc_rgb_uint8(x) -> np.ndarray:
     return arr
 
 
+def _tensor_to_hwc_depth_uint16(x) -> np.ndarray:
+    """LeRobotDataset decodes depth to float32 millimetres (1, H, W) by default
+    (depth_output_unit="mm"). Bring it back to the (H, W, 1) uint16 mm array the
+    converter fed in, so the policy sees the same raw observation layout."""
+    import torch
+    arr = x.detach().cpu().numpy() if isinstance(x, torch.Tensor) else np.asarray(x)
+    if arr.ndim == 3 and arr.shape[0] == 1:
+        arr = np.transpose(arr, (1, 2, 0))          # (1, H, W) -> (H, W, 1)
+    elif arr.ndim == 2:
+        arr = arr[..., np.newaxis]
+    if arr.dtype != np.uint16:
+        arr = np.rint(arr).clip(0, 65535).astype(np.uint16)
+    return np.ascontiguousarray(arr)
+
+
 def _finalize_session_result(
     name: str,
     gt_lin_buf: np.ndarray,
@@ -740,6 +810,14 @@ def eval_one_session(
     jsonl_path = session_dir / f"{name}.jsonl"
     rows       = load_jsonl(jsonl_path)
 
+    # Depth is required iff the schema (built from the training dataset) has it.
+    depth = open_session_depth(session_dir) if DEPTH_IMAGE_KEY in features else None
+    if DEPTH_IMAGE_KEY in features and depth is None:
+        raise SystemExit(
+            f"[!] {name}: the policy's dataset has {DEPTH_KEY} but "
+            f"{name}{DEPTH_FILE_SUFFIX} is missing — evaluate on a depth-enabled split."
+        )
+
     if reset_policy_each_session:
         policy.reset()
         preprocessor.reset()
@@ -757,6 +835,8 @@ def eval_one_session(
 
     total_frames_vid = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     total_frames     = min(total_frames_vid, len(rows))
+    if depth is not None:
+        total_frames = min(total_frames, int(depth.shape[0]))
 
     gt_lin_buf   = np.zeros(total_frames, dtype=np.float64)
     gt_ang_buf   = np.zeros(total_frames, dtype=np.float64)
@@ -775,7 +855,8 @@ def eval_one_session(
 
             # 1) Same observation construction as build_lerobot_dataset.py
             frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
-            raw_obs, raw_action = row_to_raw_obs_and_action(rows[i], frame_rgb)
+            depth_u16 = None if depth is None else np.array(depth[i])[..., np.newaxis]
+            raw_obs, raw_action = row_to_raw_obs_and_action(rows[i], frame_rgb, depth_u16)
 
             # 2) Same processor symmetry as the converter
             obs_processed = robot_observation_processor(raw_obs)
@@ -985,6 +1066,11 @@ def eval_one_episode(
             "orientation": _extract_state_field(sample, "orientation"),
             CAMERA_KEY:    frame_rgb,
         }
+        if DEPTH_IMAGE_KEY in features:
+            if DEPTH_IMAGE_KEY not in sample:
+                raise SystemExit(f"[!] schema expects {DEPTH_IMAGE_KEY} but the eval dataset "
+                                 f"sample has no such key.")
+            raw_obs[DEPTH_KEY] = _tensor_to_hwc_depth_uint16(sample[DEPTH_IMAGE_KEY])
 
         obs_processed = robot_observation_processor(raw_obs)
         observation_frame = build_dataset_frame(
@@ -1643,9 +1729,12 @@ def _run_session_folder_mode(args, pipeline_bits) -> tuple[list[SessionResult], 
     print(f"[*] input root : {input_root}")
     print(f"[*] sessions   : {len(sessions)} / {len(sessions_all)} available")
     print(f"[*] reset/sess : {not args.no_reset_per_session}")
+    depth_opts = depth_opts_from_dataset(_features_meta)
+    print(f"[*] depth      : {DEPTH_KEY if depth_opts['with_depth'] else 'none'}")
     print()
 
-    features = build_dataset_features()
+    # Schema follows the training dataset: depth on iff it has DEPTH_IMAGE_KEY.
+    features = build_dataset_features(**depth_opts)
     device   = get_safe_torch_device(policy.config.device)
     use_amp  = policy.config.use_amp
 
@@ -1714,9 +1803,12 @@ def _run_repo_mode(args, pipeline_bits) -> tuple[list[SessionResult], float]:
     print(f"[*] action keys: lin='{key_lin}'  ang='{key_ang}'")
     print(f"[*] image key  : {image_key}")
     print(f"[*] reset/ep   : {not args.no_reset_per_session}")
+    depth_opts = depth_opts_from_dataset(_features_meta)
+    print(f"[*] depth      : {DEPTH_KEY if depth_opts['with_depth'] else 'none'}")
     print()
 
-    features = build_dataset_features()
+    # Schema follows the training dataset: depth on iff it has DEPTH_IMAGE_KEY.
+    features = build_dataset_features(**depth_opts)
     device   = get_safe_torch_device(policy.config.device)
     use_amp  = policy.config.use_amp
 

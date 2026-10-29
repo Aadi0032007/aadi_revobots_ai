@@ -11,15 +11,26 @@ Output:
   ~/.cache/scout/lab/split_session/split_session_<datetime>/
       ├── session_0/
       │   ├── session_0.mp4
-      │   └── session_0.jsonl
+      │   ├── session_0.jsonl
+      │   ├── session_0.json            segment metadata (fps, size, depth shape)
+      │   └── session_0_depth.u16       only when the recording has depth.u16
       ├── session_1/...
+
+Depth: a RealSense recording (LAB/record.py, use_depth=True) carries depth.u16
+next to video.mp4 — raw uint16 millimetre maps, frame i == video frame i. It is
+sliced on the same [start:end] frame range as the video and JSONL, so every
+segment stays aligned across all three files.
 """
 import cv2
 import os
 import json
 import argparse
 from datetime import datetime
+
+import numpy as np
 from tqdm import tqdm
+
+DEPTH_FILE = "depth.u16"     # written by LAB/record.py next to video.mp4
 
 
 def get_args():
@@ -55,6 +66,39 @@ def load_jsonl(path):
     return rows
 
 
+def load_session_meta(session_path):
+    """session.json written by LAB/record.py, or {} when absent / unreadable."""
+    meta_path = os.path.join(session_path, "session.json")
+    if not os.path.isfile(meta_path):
+        return {}
+    try:
+        with open(meta_path, "r") as f:
+            return json.load(f) or {}
+    except Exception as exc:
+        print(f"[!] could not read {meta_path}: {exc}")
+        return {}
+
+
+def open_depth(session_path, meta, fallback_hw):
+    """Memory-map the recorder's depth.u16 as (n, H, W) uint16 mm, or None.
+
+    Frame i of the file pairs with frame i of video.mp4 / row i of data.jsonl.
+    The shape comes from session.json (depth_height / depth_width); sessions
+    without those keys fall back to the video size.
+    """
+    name = meta.get("depth") or DEPTH_FILE
+    path = os.path.join(session_path, name)
+    if not os.path.isfile(path):
+        return None
+    h = int(meta.get("depth_height") or fallback_hw[0])
+    w = int(meta.get("depth_width") or fallback_hw[1])
+    n = os.path.getsize(path) // (h * w * 2)
+    if n == 0:
+        print(f"[!] {path} is empty — ignoring depth")
+        return None
+    return np.memmap(path, dtype=np.uint16, mode="r", shape=(n, h, w))
+
+
 def split_one_session(session_name, session_path, output_root, start_session_idx, fps=15, segment_minutes=2):
     """Returns the next session_idx to use (so multi-session runs keep numbering continuous)."""
     video_path = os.path.join(session_path, "video.mp4")
@@ -76,7 +120,15 @@ def split_one_session(session_name, session_path, output_root, start_session_idx
     total_frames_json = len(json_data)
     total_frames = min(total_frames_json, total_frames_vid)
 
-    print(f"[*] Frames — video: {total_frames_vid}, json: {total_frames_json}, using: {total_frames}")
+    meta = load_session_meta(session_path)
+    depth = open_depth(session_path, meta, (height, width))
+    if depth is not None:
+        total_frames = min(total_frames, depth.shape[0])
+
+    print(f"[*] Frames — video: {total_frames_vid}, json: {total_frames_json}"
+          f"{f', depth: {depth.shape[0]}' if depth is not None else ''}, using: {total_frames}")
+    if depth is not None:
+        print(f"[*] Depth — {depth.shape[2]}x{depth.shape[1]} uint16 mm → session_<i>_depth.u16")
 
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     pbar = tqdm(total=total_frames, desc=f"{session_name}", unit="frame")
@@ -102,6 +154,33 @@ def split_one_session(session_name, session_path, output_root, start_session_idx
         with open(seg_jsonl_path, 'w') as f:
             for row in json_slice:
                 f.write(json.dumps(row) + "\n")
+
+        # Depth slice over the same frame range, plus a sidecar describing the
+        # segment so data_convert_agv.py never has to guess shapes.
+        seg_meta = {
+            "fps": fps,
+            "width": width,
+            "height": height,
+            "frame_count": end_idx - start_idx,
+            "source_session": session_name,
+            "source_from": start_idx,
+            "source_to": end_idx,
+            "depth": None,
+        }
+        if depth is not None:
+            seg_depth_name = f"{seg_name}_depth.u16"
+            with open(os.path.join(seg_dir, seg_depth_name), "wb") as f:
+                for a in range(start_idx, end_idx, 256):          # chunked: 256 frames ≈ 157 MB
+                    f.write(np.ascontiguousarray(depth[a:min(a + 256, end_idx)]).tobytes())
+            seg_meta.update(
+                depth=seg_depth_name,
+                depth_width=int(depth.shape[2]),
+                depth_height=int(depth.shape[1]),
+                depth_dtype="uint16",
+                depth_unit="mm",
+            )
+        with open(os.path.join(seg_dir, f"{seg_name}.json"), "w") as f:
+            json.dump(seg_meta, f, indent=2)
 
         # Write video frames
         for _ in range(start_idx, end_idx):

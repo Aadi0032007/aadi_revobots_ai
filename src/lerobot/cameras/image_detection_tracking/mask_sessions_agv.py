@@ -259,6 +259,13 @@ def run_mask(
                 dst_dir = out_root / name
                 dst_dir.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src_jsonl, dst_dir / f"{name}.jsonl")
+                # Depth sidecar + segment metadata pass through untouched: the
+                # mask is RGB-only and session_<i>_depth.u16 keeps the same
+                # frame indices as the (masked) video.
+                for extra in (f"{name}_depth.u16", f"{name}.json"):
+                    src_extra = sess / extra
+                    if src_extra.is_file():
+                        shutil.copy2(src_extra, dst_dir / extra)
 
             dst_mp4 = dst_dir / f"{name}.mp4"
             total_frames += _mask_one_video(masker, src_mp4, dst_mp4)
