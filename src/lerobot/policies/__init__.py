@@ -16,6 +16,7 @@ from lerobot.utils.action_interpolator import ActionInterpolator as ActionInterp
 
 from .act.configuration_act import ACTConfig as ACTConfig
 from .cortex_agv.configuration_cortex_agv import CortexAGVConfig as CortexAGVConfig
+from .cortex_arm.configuration_cortex_arm import CortexArmConfig as CortexArmConfig
 from .diffusion.configuration_diffusion import DiffusionConfig as DiffusionConfig
 from .eo1.configuration_eo1 import EO1Config as EO1Config
 from .evo1.configuration_evo1 import Evo1Config as Evo1Config
@@ -45,6 +46,7 @@ __all__ = [
     # Configuration classes
     "ACTConfig",
     "CortexAGVConfig",
+    "CortexArmConfig",
     "DiffusionConfig",
     "EO1Config",
     "FastWAMConfig",

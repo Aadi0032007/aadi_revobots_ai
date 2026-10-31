@@ -46,6 +46,7 @@ from lerobot.utils.feature_utils import dataset_to_policy_features
 
 from .act.configuration_act import ACTConfig
 from .cortex_agv.configuration_cortex_agv import CortexAGVConfig
+from .cortex_arm.configuration_cortex_arm import CortexArmConfig
 from .diffusion.configuration_diffusion import DiffusionConfig
 from .eo1.configuration_eo1 import EO1Config
 from .evo1.configuration_evo1 import Evo1Config
@@ -118,6 +119,10 @@ def get_policy_class(name: str) -> type[PreTrainedPolicy]:
         from .cortex_agv.modeling_cortex_agv import CortexAGVPolicy
 
         return CortexAGVPolicy
+    elif name == "cortex_arm":
+        from .cortex_arm.modeling_cortex_arm import CortexArmPolicy
+
+        return CortexArmPolicy
     elif name == "multi_task_dit":
         from .multi_task_dit.modeling_multi_task_dit import MultiTaskDiTPolicy
 
@@ -216,6 +221,8 @@ def make_policy_config(policy_type: str, **kwargs) -> PreTrainedConfig:
         return ACTConfig(**kwargs)
     elif policy_type == "cortex_agv":
         return CortexAGVConfig(**kwargs)
+    elif policy_type == "cortex_arm":
+        return CortexArmConfig(**kwargs)
     elif policy_type == "multi_task_dit":
         return MultiTaskDiTConfig(**kwargs)
     elif policy_type == "vqbet":
@@ -387,6 +394,14 @@ def make_pre_post_processors(
         from .cortex_agv.processor_cortex_agv import make_cortex_agv_pre_post_processors
 
         processors = make_cortex_agv_pre_post_processors(
+            config=policy_cfg,
+            dataset_stats=kwargs.get("dataset_stats"),
+        )
+
+    elif isinstance(policy_cfg, CortexArmConfig):
+        from .cortex_arm.processor_cortex_arm import make_cortex_arm_pre_post_processors
+
+        processors = make_cortex_arm_pre_post_processors(
             config=policy_cfg,
             dataset_stats=kwargs.get("dataset_stats"),
         )
